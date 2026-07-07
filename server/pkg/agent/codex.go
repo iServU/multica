@@ -758,7 +758,11 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 	stderrBuf := newStderrTail(io.Discard, codexStderrTailBytes)
 	cmd.Stderr = stderrBuf
 
-	unlock := acquireCodexLaunchLock(b.cfg.Logger)
+	unlock, err := acquireCodexLaunchLock(runCtx, b.cfg.Logger)
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("acquire codex launch lock: %w", err)
+	}
 	var unlockOnce sync.Once
 	safeUnlock := func() {
 		unlockOnce.Do(func() {
