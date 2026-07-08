@@ -83,6 +83,8 @@ type CodexHomeOptions struct {
 	// Only meaningful when the policy resolves to workspace-write; ignored on
 	// darwin danger-full-access. See task_home.go and MUL-4856.
 	WritableRoots []string
+	// CodexPath is the path to the Codex binary, used to check for the Windows sandbox helper.
+	CodexPath string
 }
 
 // prepareCodexHome is a thin wrapper around prepareCodexHomeWithOpts kept for
@@ -171,7 +173,7 @@ func prepareCodexHomeWithOpts(codexHome string, opts CodexHomeOptions, logger *s
 	// Write a daemon-managed sandbox block into config.toml. On macOS we may
 	// need to fall back to danger-full-access because of openai/codex#10390;
 	// see codex_sandbox.go for the full rationale.
-	policy := codexSandboxPolicyFor(opts.GOOS, opts.CodexVersion)
+	policy := codexSandboxPolicyFor(opts.GOOS, opts.CodexVersion, opts.CodexPath)
 	policy.WritableRoots = opts.WritableRoots
 	if err := ensureCodexSandboxConfig(filepath.Join(codexHome, "config.toml"), policy, opts.CodexVersion, logger); err != nil {
 		logger.Warn("execenv: codex-home ensure sandbox config failed", "error", err)

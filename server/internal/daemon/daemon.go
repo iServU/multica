@@ -11,8 +11,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -4035,6 +4035,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 			WorkDir:               task.PriorWorkDir,
 			Provider:              provider,
 			CodexVersion:          codexVersion,
+			CodexPath:             entry.Path,
 			ResumeSessionID:       task.PriorSessionID,
 			OpenclawBin:           openclawBin,
 			McpConfig:             effectiveMcpConfig,
@@ -4056,6 +4057,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 			AgentName:             agentName,
 			Provider:              provider,
 			CodexVersion:          codexVersion,
+			CodexPath:             entry.Path,
 			OpenclawBin:           openclawBin,
 			McpConfig:             effectiveMcpConfig,
 			CursorMcpAuthSource:   cursorMcpAuthSource,
