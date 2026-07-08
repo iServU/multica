@@ -11,6 +11,8 @@ import (
 	"strings"
 )
 
+var isUnderTest = false
+
 // Background
 //
 // On macOS, Codex's Seatbelt sandbox in the `workspace-write` mode silently
@@ -52,6 +54,20 @@ type codexSandboxPolicy struct {
 	Reason string
 }
 
+// getSandboxModeOverride returns the operator's forced sandbox mode for Windows,
+// preferring the process environment and falling back to the user registry
+// environment (which a fresh process may not have inherited mid-session). Empty
+// under test so unit tests see the default policy path.
+func getSandboxModeOverride() string {
+	if v := strings.TrimSpace(os.Getenv("MULTICA_CODEX_WINDOWS_SANDBOX_MODE")); v != "" {
+		return v
+	}
+	if isUnderTest {
+		return ""
+	}
+	return getWindowsRegistrySandboxMode()
+}
+
 // codexSandboxPolicyFor picks the right policy for the given platform and
 // detected Codex CLI version.
 //
@@ -74,7 +90,7 @@ func codexSandboxPolicyFor(goos, detectedVersion, codexPath string) codexSandbox
 			}
 		}
 
-		if v := strings.TrimSpace(os.Getenv("MULTICA_CODEX_WINDOWS_SANDBOX_MODE")); v != "" {
+		if v := getSandboxModeOverride(); v != "" {
 			if v == "danger-full-access" || v == "workspace-write" {
 				return codexSandboxPolicy{
 					Mode:          v,
