@@ -985,8 +985,17 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 		defer cancel()
 		defer close(msgCh)
 		defer close(resCh)
-		defer drainAndWait()
+		// safeUnlock must never run before drainAndWait in the unwind:
+		// releasing the launch lock while the process is still alive lets
+		// a contending task start a second Codex process (and a second
+		// invocation of the native Windows sandbox helper) before this
+		// one has actually exited — exactly what the lock exists to
+		// prevent. Registering drainAndWait last makes it run first
+		// (defers unwind LIFO), so it's the deferred safety net for any
+		// early-return path added later between cmd.Start() and the
+		// explicit safeUnlock() calls below.
 		defer safeUnlock()
+		defer drainAndWait()
 
 		startTime := time.Now()
 		finalStatus := "completed"
@@ -1005,10 +1014,16 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 				"experimentalApi": true,
 			},
 		})
-		safeUnlock()
 		if err != nil {
 			initializeLatency := time.Since(initializeStarted)
+			// Hold the launch lock through cleanup: the process may still
+			// be mid-launch of the native sandbox helper when initialize
+			// fails or is cancelled, so releasing the lock before
+			// drainAndWait() has fully reaped it would let a contending
+			// task start a second Codex process concurrently with this
+			// one's shutdown.
 			drainAndWait() // flush os/exec stderr goroutine before sampling Tail
+			safeUnlock()
 			finalStatus = "failed"
 			finalError = withAgentStderr(fmt.Sprintf("codex initialize failed: %v", err), "codex", sanitizeCodexDiagnostic(stderrBuf.Tail()))
 			var handshakeErr *codexHandshakeTimeoutError
@@ -1023,6 +1038,10 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 			return
 		}
 		b.cfg.Logger.Info("codex lifecycle", "phase", "initialize_response", "task_id", b.cfg.TaskID, "runtime_id", b.cfg.RuntimeID, "pid", cmd.Process.Pid, "attempt", attempt, "latency", time.Since(initializeStarted).Round(time.Millisecond).String())
+		// initialize succeeded: the sandbox-helper-invoking startup phase
+		// is done, so it's safe to let the next task's launch proceed
+		// concurrently with the rest of this task's lifetime.
+		safeUnlock()
 		c.notify("initialized")
 
 		// 2. Start a new thread, or resume the prior one for this issue. When
