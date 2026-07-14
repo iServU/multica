@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -3611,6 +3612,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 			WorkDir:             task.PriorWorkDir,
 			Provider:            provider,
 			CodexVersion:        codexVersion,
+			CodexPath:           entry.Path,
 			OpenclawBin:         openclawBin,
 			McpConfig:           agentMcpConfig,
 			CursorMcpAuthSource: cursorMcpAuthSource,
@@ -3627,6 +3629,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 			AgentName:           agentName,
 			Provider:            provider,
 			CodexVersion:        codexVersion,
+			CodexPath:           entry.Path,
 			OpenclawBin:         openclawBin,
 			McpConfig:           agentMcpConfig,
 			CursorMcpAuthSource: cursorMcpAuthSource,
@@ -3811,6 +3814,23 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 			agentEnv[k] = v
 		}
 	}
+	if runtime.GOOS == "windows" && provider == "codex" {
+		helperPath := filepath.Join(filepath.Dir(entry.Path), "codex-windows-sandbox-setup.exe")
+		d.logger.Debug("codex pre-flight check",
+			"resolved_codex_path", entry.Path,
+			"helper_path", helperPath,
+			"cwd", env.WorkDir,
+			"codex_home", agentEnv["CODEX_HOME"],
+			"task_id", task.ID,
+		)
+		if _, err := os.Stat(helperPath); err != nil {
+			d.logger.Warn("codex pre-flight check: sandbox helper binary not found",
+				"helper_path_checked", helperPath,
+				"error", err,
+			)
+		}
+	}
+
 	backend, err := agent.New(provider, agent.Config{
 		ExecutablePath: entry.Path,
 		Env:            agentEnv,

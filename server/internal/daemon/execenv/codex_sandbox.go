@@ -4,11 +4,14 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
 )
+
+var isUnderTest = false
 
 // Background
 //
@@ -40,26 +43,98 @@ type codexSandboxPolicy struct {
 	NetworkAccess bool
 	// Reason is a short human-readable label used in warn-level logs.
 	Reason string
+	// Platform is the GOOS this policy was computed for ("darwin", "windows",
+	// or "" for other platforms). Used to pick the right danger-full-access
+	// warning wording — the macOS and Windows fallbacks have different causes
+	// and different security implications.
+	Platform string
 }
 
 // codexSandboxPolicyFor picks the right policy for the given platform and
 // detected Codex CLI version.
 //
-// - Non-darwin: always workspace-write with network access (Landlock is not
-//   affected by the macOS Seatbelt bug).
+// - Windows: workspace-write with network access by default; falls back to
+//   danger-full-access when overridden via MULTICA_CODEX_WINDOWS_SANDBOX_MODE
+//   or when the sandbox setup helper binary is missing (see below).
+// - Other non-darwin platforms: always workspace-write with network access
+//   (Landlock is not affected by the macOS Seatbelt bug).
 // - darwin with a version at or above CodexDarwinNetworkAccessFixedVersion:
 //   workspace-write with network access (upstream bug fixed).
 // - darwin otherwise (including when the version is unknown): fall back to
 //   danger-full-access so the Multica CLI can reach the API.
-func codexSandboxPolicyFor(goos, detectedVersion string) codexSandboxPolicy {
+func getSandboxModeOverride() string {
+	if v := strings.TrimSpace(os.Getenv("MULTICA_CODEX_WINDOWS_SANDBOX_MODE")); v != "" {
+		return v
+	}
+	if isUnderTest {
+		return ""
+	}
+	return getWindowsRegistrySandboxMode()
+}
+
+func codexSandboxPolicyFor(goos, detectedVersion, codexPath string) codexSandboxPolicy {
 	if goos == "" {
 		goos = runtime.GOOS
+	}
+	if goos == "windows" {
+		hasHelper := false
+		if codexPath != "" {
+			helperPath := filepath.Join(filepath.Dir(codexPath), "codex-windows-sandbox-setup.exe")
+			if _, err := os.Stat(helperPath); err == nil {
+				hasHelper = true
+			}
+		}
+
+		if v := getSandboxModeOverride(); v != "" {
+			// read-only is a genuine Codex SandboxMode value — the most
+			// restrictive of the three — and must be honoured, not treated
+			// as an invalid value. Falling through to the "invalid"
+			// default below would silently grant workspace-write (a more
+			// permissive policy) for an operator override that explicitly
+			// asked for the least permissive one; a rejected/unrecognised
+			// security setting must never result in a more permissive
+			// policy than the one requested. NetworkAccess is only
+			// meaningful under workspace-write (see the struct field doc
+			// and renderMulticaManagedBlock's guard), so it's left false
+			// here — read-only never writes a network_access key.
+			if v == "danger-full-access" || v == "workspace-write" || v == "read-only" {
+				return codexSandboxPolicy{
+					Mode:          v,
+					NetworkAccess: v == "workspace-write",
+					Reason:        "MULTICA_CODEX_WINDOWS_SANDBOX_MODE override",
+					Platform:      "windows",
+				}
+			}
+			return codexSandboxPolicy{
+				Mode:          "workspace-write",
+				NetworkAccess: true,
+				Reason:        fmt.Sprintf("invalid MULTICA_CODEX_WINDOWS_SANDBOX_MODE %q, falling back to default", v),
+				Platform:      "windows",
+			}
+		}
+
+		if !hasHelper {
+			return codexSandboxPolicy{
+				Mode:          "danger-full-access",
+				NetworkAccess: false,
+				Reason:        "sandbox helper binary (codex-windows-sandbox-setup.exe) not found next to codex.exe",
+				Platform:      "windows",
+			}
+		}
+
+		return codexSandboxPolicy{
+			Mode:          "workspace-write",
+			NetworkAccess: true,
+			Reason:        "windows default",
+			Platform:      "windows",
+		}
 	}
 	if goos != "darwin" {
 		return codexSandboxPolicy{
 			Mode:          "workspace-write",
 			NetworkAccess: true,
 			Reason:        "non-darwin platform — seatbelt bug does not apply",
+			Platform:      goos,
 		}
 	}
 	if codexDarwinNetworkAccessFixed(detectedVersion) {
@@ -67,6 +142,7 @@ func codexSandboxPolicyFor(goos, detectedVersion string) codexSandboxPolicy {
 			Mode:          "workspace-write",
 			NetworkAccess: true,
 			Reason:        "codex version includes macOS network_access fix",
+			Platform:      "darwin",
 		}
 	}
 	reason := "codex on macOS: seatbelt ignores sandbox_workspace_write.network_access (openai/codex#10390)"
@@ -77,6 +153,7 @@ func codexSandboxPolicyFor(goos, detectedVersion string) codexSandboxPolicy {
 		Mode:          "danger-full-access",
 		NetworkAccess: false,
 		Reason:        reason,
+		Platform:      "darwin",
 	}
 }
 
@@ -206,14 +283,57 @@ func stripLegacySandboxDirectives(content string) string {
 	return strings.Join(out, "\n")
 }
 
+// stripWindowsSandboxHelperTable removes the top-level `[windows]` table
+// Codex CLI writes into the user's global ~/.codex/config.toml on its own —
+// this is not something Multica writes or manages. A `sandbox = "unelevated"` key
+// inside it makes Codex spawn its native codex-windows-sandbox-setup.exe
+// helper on every launch to set up an OS-level sandbox, which needs to
+// elevate via UAC, regardless of what sandbox_mode says.
+//
+// syncCopiedFile (codex_home.go, MUL-2646) unconditionally re-copies the
+// shared ~/.codex/config.toml into every per-task config.toml on every
+// run, so a one-time edit to the shared file doesn't stick if Codex
+// re-writes the table there on its own next startup — this must be
+// stripped fresh on every per-task write instead.
+func stripWindowsSandboxHelperTable(content string) string {
+	lines := strings.Split(content, "\n")
+	out := make([]string, 0, len(lines))
+	inWindowsTable := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "[") {
+			inWindowsTable = trimmed == "[windows]"
+			if inWindowsTable {
+				continue
+			}
+			out = append(out, line)
+			continue
+		}
+		if inWindowsTable {
+			continue
+		}
+		out = append(out, line)
+	}
+	return strings.Join(out, "\n")
+}
+
 // ensureCodexSandboxConfig writes the multica-managed sandbox block into the
 // given config.toml according to the policy. It is idempotent: running it
 // twice produces the same file contents. The file is created if it doesn't
 // exist.
 //
-// The function logs (at warn level) when it falls back to danger-full-access
-// on macOS so the incident is visible in daemon logs.
+// The function logs (at warn level) whenever it falls back to
+// danger-full-access, on any platform, so the incident is visible in daemon
+// logs. The wording differs by policy.Platform: macOS falls back because of
+// a known upstream Seatbelt bug (transient, resolved by a Codex upgrade);
+// Windows falls back either by explicit operator override or because the
+// sandbox setup helper is missing, which is a real security relaxation (no
+// filesystem sandbox) and is worded accordingly.
 func ensureCodexSandboxConfig(configPath string, policy codexSandboxPolicy, detectedVersion string, logger *slog.Logger) error {
+	if strings.Contains(policy.Reason, "invalid") && logger != nil {
+		logger.Warn("codex sandbox override invalid; ignoring", "reason", policy.Reason)
+	}
+
 	data, err := os.ReadFile(configPath)
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("read config.toml: %w", err)
@@ -226,22 +346,47 @@ func ensureCodexSandboxConfig(configPath string, policy codexSandboxPolicy, dete
 		existing = stripLegacySandboxDirectives(existing)
 	}
 
+	// Under danger-full-access, Codex's own OS-level Windows sandbox is
+	// redundant (the process already runs with full access) — strip the
+	// table so codex-windows-sandbox-setup.exe never launches and never
+	// prompts for UAC. Leave it alone under workspace-write, where Codex's
+	// own sandboxing may depend on it. Run on every write (not gated behind
+	// the managed-block-marker check above) because the shared source file
+	// can reintroduce the table on its own between runs — see
+	// stripWindowsSandboxHelperTable.
+	if policy.Mode == "danger-full-access" && strings.Contains(existing, "[windows]") {
+		existing = stripWindowsSandboxHelperTable(existing)
+	}
+
 	updated := upsertMulticaManagedBlock(existing, policy)
 	if updated == string(data) {
 		return nil
 	}
 
 	if policy.Mode == "danger-full-access" && logger != nil {
-		version := detectedVersion
-		if version == "" {
-			version = "unknown"
+		switch policy.Platform {
+		case "windows":
+			// On Windows, danger-full-access means the Codex filesystem
+			// sandbox is off for this task — either an explicit operator
+			// override or the setup helper being unavailable. Call out the
+			// security tradeoff explicitly rather than reusing the macOS
+			// (transient, upgrade-fixable) wording.
+			logger.Warn("codex sandbox: falling back to danger-full-access on Windows — filesystem sandbox is disabled for this task",
+				"reason", policy.Reason,
+				"config_path", configPath,
+			)
+		default:
+			version := detectedVersion
+			if version == "" {
+				version = "unknown"
+			}
+			logger.Warn("codex sandbox: falling back to danger-full-access on macOS",
+				"reason", policy.Reason,
+				"codex_version", version,
+				"hint", codexUpgradeHint(),
+				"config_path", configPath,
+			)
 		}
-		logger.Warn("codex sandbox: falling back to danger-full-access on macOS",
-			"reason", policy.Reason,
-			"codex_version", version,
-			"hint", codexUpgradeHint(),
-			"config_path", configPath,
-		)
 	}
 
 	if err := os.WriteFile(configPath, []byte(updated), 0o644); err != nil {

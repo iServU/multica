@@ -11,6 +11,10 @@ import (
 	"testing"
 )
 
+func init() {
+	isUnderTest = true
+}
+
 func testLogger() *slog.Logger {
 	return slog.Default()
 }
@@ -2405,7 +2409,7 @@ func TestEnsureCodexSandboxConfigCreatesDefaultLinux(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.toml")
 
-	policy := codexSandboxPolicyFor("linux", "0.121.0")
+	policy := codexSandboxPolicyFor("linux", "0.121.0", "")
 	if err := ensureCodexSandboxConfig(configPath, policy, "0.121.0", testLogger()); err != nil {
 		t.Fatalf("ensureCodexSandboxConfig failed: %v", err)
 	}
@@ -2438,7 +2442,7 @@ func TestEnsureCodexSandboxConfigDarwinFallsBack(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.toml")
 
-	policy := codexSandboxPolicyFor("darwin", "0.121.0")
+	policy := codexSandboxPolicyFor("darwin", "0.121.0", "")
 	if err := ensureCodexSandboxConfig(configPath, policy, "0.121.0", testLogger()); err != nil {
 		t.Fatalf("ensureCodexSandboxConfig failed: %v", err)
 	}
@@ -2457,7 +2461,7 @@ func TestEnsureCodexSandboxConfigIsIdempotent(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.toml")
 
-	policy := codexSandboxPolicyFor("linux", "0.121.0")
+	policy := codexSandboxPolicyFor("linux", "0.121.0", "")
 	for i := 0; i < 3; i++ {
 		if err := ensureCodexSandboxConfig(configPath, policy, "0.121.0", testLogger()); err != nil {
 			t.Fatalf("pass %d: %v", i, err)
@@ -2480,7 +2484,7 @@ approval_policy = "on-failure"
 `
 	os.WriteFile(configPath, []byte(existing), 0o644)
 
-	policy := codexSandboxPolicyFor("linux", "0.121.0")
+	policy := codexSandboxPolicyFor("linux", "0.121.0", "")
 	if err := ensureCodexSandboxConfig(configPath, policy, "0.121.0", testLogger()); err != nil {
 		t.Fatalf("ensureCodexSandboxConfig failed: %v", err)
 	}
@@ -2515,7 +2519,7 @@ network_access = true
 `
 	os.WriteFile(configPath, []byte(existing), 0o644)
 
-	policy := codexSandboxPolicyFor("darwin", "0.121.0")
+	policy := codexSandboxPolicyFor("darwin", "0.121.0", "")
 	if err := ensureCodexSandboxConfig(configPath, policy, "0.121.0", testLogger()); err != nil {
 		t.Fatalf("ensureCodexSandboxConfig failed: %v", err)
 	}
@@ -2537,6 +2541,91 @@ network_access = true
 	}
 }
 
+// TestEnsureCodexSandboxConfigStripsWindowsHelperUnderDangerFullAccess pins
+// a real-world root cause: Codex CLI writes its own `[windows]` table
+// (independent of anything Multica manages) into the shared
+// ~/.codex/config.toml, and syncCopiedFile (codex_home.go, MUL-2646)
+// unconditionally re-copies that shared file into every per-task
+// config.toml on every run. A `sandbox = "unelevated"` key inside that
+// table makes Codex spawn its native codex-windows-sandbox-setup.exe
+// helper on every launch, which needs to elevate via UAC — regardless of
+// what sandbox_mode says. When policy.Mode is danger-full-access, that
+// OS-level sandbox is redundant (the process already runs with full
+// access), so the daemon must strip the table on every write — a one-time
+// edit to the shared file doesn't stick, since Codex re-adds it there on
+// its own next startup.
+func TestEnsureCodexSandboxConfigStripsWindowsHelperUnderDangerFullAccess(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.toml")
+
+	existing := `model = "gpt-5.6-luna"
+sandbox_mode = "danger-full-access"
+
+[sandbox_workspace_write]
+network_access = true
+
+[windows]
+sandbox = "unelevated"
+`
+	os.WriteFile(configPath, []byte(existing), 0o644)
+
+	policy := codexSandboxPolicy{
+		Mode:          "danger-full-access",
+		NetworkAccess: false,
+		Reason:        "MULTICA_CODEX_WINDOWS_SANDBOX_MODE override",
+		Platform:      "windows",
+	}
+	if err := ensureCodexSandboxConfig(configPath, policy, "0.144.1", testLogger()); err != nil {
+		t.Fatalf("ensureCodexSandboxConfig failed: %v", err)
+	}
+
+	data, _ := os.ReadFile(configPath)
+	s := string(data)
+	if !strings.Contains(s, `model = "gpt-5.6-luna"`) {
+		t.Error("should have preserved unrelated user config")
+	}
+	if strings.Contains(s, "[windows]") {
+		t.Errorf("expected [windows] sandbox-helper table to be stripped under danger-full-access, got:\n%s", s)
+	}
+	if strings.Contains(s, `sandbox = "unelevated"`) {
+		t.Errorf("expected the unelevated sandbox directive to be gone, got:\n%s", s)
+	}
+}
+
+// TestEnsureCodexSandboxConfigKeepsWindowsHelperUnderWorkspaceWrite pins the
+// other half of the contract: under workspace-write (the normal path when
+// the native sandbox helper is present and expected to run), the [windows]
+// table is left alone — Codex's own Windows sandboxing may depend on it.
+func TestEnsureCodexSandboxConfigKeepsWindowsHelperUnderWorkspaceWrite(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.toml")
+
+	existing := `model = "gpt-5.6-luna"
+
+[windows]
+sandbox = "unelevated"
+`
+	os.WriteFile(configPath, []byte(existing), 0o644)
+
+	policy := codexSandboxPolicy{
+		Mode:          "workspace-write",
+		NetworkAccess: true,
+		Reason:        "windows default",
+		Platform:      "windows",
+	}
+	if err := ensureCodexSandboxConfig(configPath, policy, "0.144.1", testLogger()); err != nil {
+		t.Fatalf("ensureCodexSandboxConfig failed: %v", err)
+	}
+
+	data, _ := os.ReadFile(configPath)
+	s := string(data)
+	if !strings.Contains(s, "[windows]") || !strings.Contains(s, `sandbox = "unelevated"`) {
+		t.Errorf("expected [windows] sandbox-helper table to survive under workspace-write, got:\n%s", s)
+	}
+}
+
 func TestEnsureCodexSandboxConfigHoistsAboveUserTables(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -2554,7 +2643,7 @@ trust = "always"
 `
 	os.WriteFile(configPath, []byte(existing), 0o644)
 
-	policy := codexSandboxPolicyFor("linux", "0.121.0")
+	policy := codexSandboxPolicyFor("linux", "0.121.0", "")
 	if err := ensureCodexSandboxConfig(configPath, policy, "0.121.0", testLogger()); err != nil {
 		t.Fatalf("ensureCodexSandboxConfig failed: %v", err)
 	}
@@ -2619,7 +2708,7 @@ network_access = true
 `
 	os.WriteFile(configPath, []byte(legacy), 0o644)
 
-	policy := codexSandboxPolicyFor("linux", "0.121.0")
+	policy := codexSandboxPolicyFor("linux", "0.121.0", "")
 	if err := ensureCodexSandboxConfig(configPath, policy, "0.121.0", testLogger()); err != nil {
 		t.Fatalf("ensureCodexSandboxConfig failed: %v", err)
 	}
@@ -2657,7 +2746,7 @@ func TestCodexSandboxPolicyFor(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			p := codexSandboxPolicyFor(tc.goos, tc.version)
+			p := codexSandboxPolicyFor(tc.goos, tc.version, "")
 			if p.Mode != tc.wantMode {
 				t.Errorf("mode = %q, want %q", p.Mode, tc.wantMode)
 			}
@@ -2668,6 +2757,113 @@ func TestCodexSandboxPolicyFor(t *testing.T) {
 				t.Error("expected non-empty Reason")
 			}
 		})
+	}
+}
+
+func TestCodexSandboxPolicyForWindowsOverrides(t *testing.T) {
+	// Cannot use t.Parallel() because we use t.Setenv.
+	dir := t.TempDir()
+	helperPath := filepath.Join(dir, "codex-windows-sandbox-setup.exe")
+	os.WriteFile(helperPath, []byte("fake"), 0o755)
+	codexPath := filepath.Join(dir, "codex.exe")
+
+	// Test default Windows behavior (no env var, helper exists)
+	t.Setenv("MULTICA_CODEX_WINDOWS_SANDBOX_MODE", "")
+	p1 := codexSandboxPolicyFor("windows", "0.121.0", codexPath)
+	if p1.Mode != "workspace-write" {
+		t.Errorf("default windows (helper exists): mode = %q, want workspace-write", p1.Mode)
+	}
+	if !p1.NetworkAccess {
+		t.Error("default windows: network access should be true")
+	}
+
+	// Test fallback when helper does not exist
+	pFallback := codexSandboxPolicyFor("windows", "0.121.0", "nonexistent-codex-path")
+	if pFallback.Mode != "danger-full-access" {
+		t.Errorf("default windows (no helper): mode = %q, want danger-full-access", pFallback.Mode)
+	}
+
+	// Test danger-full-access override
+	t.Setenv("MULTICA_CODEX_WINDOWS_SANDBOX_MODE", "danger-full-access")
+	p2 := codexSandboxPolicyFor("windows", "0.121.0", codexPath)
+	if p2.Mode != "danger-full-access" {
+		t.Errorf("danger-full-access: mode = %q, want danger-full-access", p2.Mode)
+	}
+	if p2.NetworkAccess {
+		t.Error("danger-full-access: network access should be false")
+	}
+
+	// Test workspace-write override (forces workspace-write even if helper is missing)
+	t.Setenv("MULTICA_CODEX_WINDOWS_SANDBOX_MODE", "workspace-write")
+	p3 := codexSandboxPolicyFor("windows", "0.121.0", "nonexistent-codex-path")
+	if p3.Mode != "workspace-write" {
+		t.Errorf("workspace-write override: mode = %q, want workspace-write", p3.Mode)
+	}
+	if !p3.NetworkAccess {
+		t.Error("workspace-write: network access should be true")
+	}
+
+	// Test invalid override value (should fall back to default workspace-write if helper exists)
+	t.Setenv("MULTICA_CODEX_WINDOWS_SANDBOX_MODE", "invalid-mode-typo")
+	p4 := codexSandboxPolicyFor("windows", "0.121.0", codexPath)
+	if p4.Mode != "workspace-write" {
+		t.Errorf("invalid mode: mode = %q, want workspace-write", p4.Mode)
+	}
+	if !p4.NetworkAccess {
+		t.Error("invalid mode: network access should be true")
+	}
+	if !strings.Contains(p4.Reason, "invalid MULTICA_CODEX_WINDOWS_SANDBOX_MODE") {
+		t.Errorf("invalid mode: expected warning in Reason, got %q", p4.Reason)
+	}
+}
+
+// TestCodexSandboxPolicyForWindowsReadOnlyOverride pins the fix for the PR
+// #5007 review finding that MULTICA_CODEX_WINDOWS_SANDBOX_MODE=read-only —
+// a value Codex's SandboxMode genuinely supports, and the *most*
+// restrictive of the three — fell through codexSandboxPolicyFor's "invalid
+// override" branch and got silently replaced with workspace-write, a
+// *more* permissive policy than the operator explicitly requested. A
+// rejected/unrecognised security setting must never result in a more
+// permissive policy than the one asked for.
+func TestCodexSandboxPolicyForWindowsReadOnlyOverride(t *testing.T) {
+	// Cannot use t.Parallel() because we use t.Setenv.
+	dir := t.TempDir()
+	helperPath := filepath.Join(dir, "codex-windows-sandbox-setup.exe")
+	os.WriteFile(helperPath, []byte("fake"), 0o755)
+	codexPath := filepath.Join(dir, "codex.exe")
+
+	t.Setenv("MULTICA_CODEX_WINDOWS_SANDBOX_MODE", "read-only")
+	p := codexSandboxPolicyFor("windows", "0.121.0", codexPath)
+	if p.Mode != "read-only" {
+		t.Errorf("read-only override: mode = %q, want read-only", p.Mode)
+	}
+	if p.NetworkAccess {
+		t.Error("read-only override: NetworkAccess should be false (unused by read-only, but must not read as granted)")
+	}
+	if !strings.Contains(p.Reason, "override") {
+		t.Errorf("read-only override: expected override in Reason, got %q", p.Reason)
+	}
+
+	// The helper being absent must not change read-only's outcome — unlike
+	// workspace-write, read-only needs no native sandbox helper setup, and
+	// an explicit operator override already bypasses the helper-presence
+	// auto-detection (same as the existing workspace-write-override case
+	// above).
+	pNoHelper := codexSandboxPolicyFor("windows", "0.121.0", "nonexistent-codex-path")
+	if pNoHelper.Mode != "read-only" {
+		t.Errorf("read-only override (no helper): mode = %q, want read-only", pNoHelper.Mode)
+	}
+
+	// renderMulticaManagedBlock must not write a
+	// [sandbox_workspace_write]-style network_access key for read-only —
+	// that sub-key is only meaningful under workspace-write, and Codex
+	// would reject or misinterpret it under read-only.
+	block := renderMulticaManagedBlock(p)
+	if !strings.Contains(block, `sandbox_mode = "read-only"`) {
+		t.Errorf("rendered block missing sandbox_mode = \"read-only\":\n%s", block)
+	}
+	if strings.Contains(block, "network_access") {
+		t.Errorf("rendered block must not include network_access for read-only:\n%s", block)
 	}
 }
 
