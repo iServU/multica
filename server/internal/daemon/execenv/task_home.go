@@ -157,7 +157,7 @@ func prepareCodexSandboxHome(envRoot, goos, codexVersion string, logger *slog.Lo
 	if goos == "" {
 		goos = runtime.GOOS
 	}
-	if goos != "linux" || codexSandboxPolicyFor(goos, codexVersion).Mode != "workspace-write" {
+	if goos != "linux" || codexSandboxPolicyFor(goos, codexVersion, "").Mode != "workspace-write" {
 		return "", nil, nil
 	}
 
