@@ -15,7 +15,7 @@ import (
 // table — is valid TOML.
 func TestRenderManagedBlockWritableRoots(t *testing.T) {
 	t.Parallel()
-	policy := codexSandboxPolicyFor("linux", "0.121.0")
+	policy := codexSandboxPolicyFor("linux", "0.121.0", "")
 	policy.WritableRoots = []string{"/home/u/multica_workspaces/ws/abc/home", "/home/u/multica_workspaces/.repos/ws"}
 
 	block := renderMulticaManagedBlock(policy)
@@ -48,13 +48,13 @@ func TestRenderManagedBlockWritableRoots(t *testing.T) {
 func TestRenderManagedBlockNoWritableRoots(t *testing.T) {
 	t.Parallel()
 
-	linux := renderMulticaManagedBlock(codexSandboxPolicyFor("linux", "0.121.0"))
+	linux := renderMulticaManagedBlock(codexSandboxPolicyFor("linux", "0.121.0", ""))
 	if strings.Contains(linux, "writable_roots") {
 		t.Errorf("workspace-write with no roots must omit writable_roots, got:\n%s", linux)
 	}
 
 	// danger-full-access must never emit workspace-write keys even if roots set.
-	darwin := codexSandboxPolicyFor("darwin", "0.121.0")
+	darwin := codexSandboxPolicyFor("darwin", "0.121.0", "")
 	darwin.WritableRoots = []string{"/should/not/appear"}
 	block := renderMulticaManagedBlock(darwin)
 	if strings.Contains(block, "writable_roots") || strings.Contains(block, "sandbox_workspace_write") {
@@ -69,7 +69,7 @@ func TestEnsureCodexSandboxConfigWritableRoots(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.toml")
 
-	policy := codexSandboxPolicyFor("linux", "0.121.0")
+	policy := codexSandboxPolicyFor("linux", "0.121.0", "")
 	policy.WritableRoots = []string{filepath.Join(dir, "home"), filepath.Join(dir, "repos")}
 	if err := ensureCodexSandboxConfig(configPath, policy, "0.121.0", testLogger()); err != nil {
 		t.Fatalf("ensureCodexSandboxConfig failed: %v", err)
