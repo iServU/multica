@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 )
 
 var errTaskSecretUnavailable = errors.New("task secret lease unavailable")
+
+const taskSecretTombstoneTTL = 10 * time.Minute
 
 type taskSecret struct {
 	taskID  string
@@ -21,6 +24,21 @@ func validTaskSecretEnvKey(key string) bool {
 	return key == "FORGEJO_TOKEN"
 }
 
+func (d *Daemon) pruneTaskSecretTombstones(now time.Time) {
+	for leaseID, closedAt := range d.taskSecretClosed {
+		if now.Sub(closedAt) >= taskSecretTombstoneTTL {
+			delete(d.taskSecretClosed, leaseID)
+		}
+	}
+}
+
+func (d *Daemon) closeTaskSecretLease(leaseID string) {
+	if d.taskSecretClosed == nil {
+		d.taskSecretClosed = make(map[string]time.Time)
+	}
+	d.taskSecretClosed[leaseID] = time.Now()
+}
+
 func (d *Daemon) acceptTaskSecret(secret taskSecret) bool {
 	if secret.taskID == "" || secret.leaseID == "" || secret.secret == "" || !validTaskSecretEnvKey(secret.envKey) {
 		return false
@@ -33,8 +51,13 @@ func (d *Daemon) acceptTaskSecret(secret taskSecret) bool {
 	if d.taskSecretWaiters == nil {
 		d.taskSecretWaiters = make(map[string]chan taskSecret)
 	}
+	d.pruneTaskSecretTombstones(time.Now())
+	if _, closed := d.taskSecretClosed[secret.leaseID]; closed {
+		return false
+	}
 	if waiter, ok := d.taskSecretWaiters[secret.leaseID]; ok {
 		delete(d.taskSecretWaiters, secret.leaseID)
+		d.closeTaskSecretLease(secret.leaseID)
 		waiter <- secret
 		close(waiter)
 		return true
@@ -56,14 +79,24 @@ func (d *Daemon) takeTaskSecret(ctx context.Context, taskID, leaseID string) (ta
 	if d.taskSecretWaiters == nil {
 		d.taskSecretWaiters = make(map[string]chan taskSecret)
 	}
+	d.pruneTaskSecretTombstones(time.Now())
+	if _, closed := d.taskSecretClosed[leaseID]; closed {
+		d.taskSecretsMu.Unlock()
+		return taskSecret{}, errTaskSecretUnavailable
+	}
 	if secret, ok := d.taskSecrets[leaseID]; ok {
 		if secret.taskID != taskID {
 			d.taskSecretsMu.Unlock()
 			return taskSecret{}, errTaskSecretUnavailable
 		}
 		delete(d.taskSecrets, leaseID)
+		d.closeTaskSecretLease(leaseID)
 		d.taskSecretsMu.Unlock()
 		return secret, nil
+	}
+	if _, waiting := d.taskSecretWaiters[leaseID]; waiting {
+		d.taskSecretsMu.Unlock()
+		return taskSecret{}, errTaskSecretUnavailable
 	}
 	waiter := make(chan taskSecret, 1)
 	d.taskSecretWaiters[leaseID] = waiter
@@ -86,7 +119,9 @@ func (d *Daemon) takeTaskSecret(ctx context.Context, taskID, leaseID string) (ta
 
 func (d *Daemon) clearTaskSecret(leaseID string) {
 	d.taskSecretsMu.Lock()
+	d.pruneTaskSecretTombstones(time.Now())
 	delete(d.taskSecrets, leaseID)
+	d.closeTaskSecretLease(leaseID)
 	if waiter, ok := d.taskSecretWaiters[leaseID]; ok {
 		delete(d.taskSecretWaiters, leaseID)
 		close(waiter)

@@ -492,10 +492,11 @@ type Daemon struct {
 	// over the task-wakeup WS connection. It is attached to the live
 	// connection in runTaskWakeupConnection and detached on disconnect; when
 	// detached, callers fall back to HTTP.
-	wsRPC *wsRPCClient
-	taskSecretsMu    sync.Mutex
-	taskSecrets      map[string]taskSecret
+	wsRPC             *wsRPCClient
+	taskSecretsMu     sync.Mutex
+	taskSecrets       map[string]taskSecret
 	taskSecretWaiters map[string]chan taskSecret
+	taskSecretClosed  map[string]time.Time
 
 	// batchClaimUnsupported is set once a batch claim gets a 404 from the
 	// server (no /api/daemon/tasks/claim route — an un-upgraded server), so
@@ -674,6 +675,7 @@ func New(cfg Config, logger *slog.Logger) *Daemon {
 		wsRPC:                     newWSRPCClient(wsRPCResponseGrace),
 		taskSecrets:               make(map[string]taskSecret),
 		taskSecretWaiters:         make(map[string]chan taskSecret),
+		taskSecretClosed:          make(map[string]time.Time),
 	}
 	d.activeEnvRootsCond = sync.NewCond(&d.activeEnvRootsMu)
 	d.activeStoresCond = sync.NewCond(&d.activeStoresMu)

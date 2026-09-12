@@ -10,6 +10,7 @@ func newTaskSecretTestDaemon() *Daemon {
 	return &Daemon{
 		taskSecrets:       make(map[string]taskSecret),
 		taskSecretWaiters: make(map[string]chan taskSecret),
+		taskSecretClosed:  make(map[string]time.Time),
 	}
 }
 
@@ -30,6 +31,9 @@ func TestTaskSecretLeaseIsBoundToTaskAndConsumedOnce(t *testing.T) {
 	}
 	if _, err := d.takeTaskSecret(context.Background(), "task-a", "lease-a"); err == nil {
 		t.Fatal("lease was reusable")
+	}
+	if d.acceptTaskSecret(taskSecret{taskID: "task-a", leaseID: "lease-a", envKey: "FORGEJO_TOKEN", secret: "late"}) {
+		t.Fatal("late duplicate delivery was accepted")
 	}
 }
 
