@@ -165,6 +165,8 @@ const (
 	// HTTP fallback) and any future daemon→server RPC.
 	EventDaemonRPCRequest  = "daemon:rpc_request"
 	EventDaemonRPCResponse = "daemon:rpc_response"
+	// One-use task secret delivery over the authenticated daemon control channel.
+	EventDaemonTaskSecret = "daemon:task_secret"
 
 	// GitHub integration events
 	EventGitHubInstallationCreated = "github_installation:created"

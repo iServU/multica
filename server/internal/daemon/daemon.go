@@ -493,6 +493,9 @@ type Daemon struct {
 	// connection in runTaskWakeupConnection and detached on disconnect; when
 	// detached, callers fall back to HTTP.
 	wsRPC *wsRPCClient
+	taskSecretsMu    sync.Mutex
+	taskSecrets      map[string]taskSecret
+	taskSecretWaiters map[string]chan taskSecret
 
 	// batchClaimUnsupported is set once a batch claim gets a 404 from the
 	// server (no /api/daemon/tasks/claim route — an un-upgraded server), so
@@ -669,6 +672,8 @@ func New(cfg Config, logger *slog.Logger) *Daemon {
 		reconcile:                 newReconcileBroadcaster(),
 		workspaceChanges:          newWorkspaceChangeSignal(),
 		wsRPC:                     newWSRPCClient(wsRPCResponseGrace),
+		taskSecrets:               make(map[string]taskSecret),
+		taskSecretWaiters:         make(map[string]chan taskSecret),
 	}
 	d.activeEnvRootsCond = sync.NewCond(&d.activeEnvRootsMu)
 	d.activeStoresCond = sync.NewCond(&d.activeStoresMu)
@@ -7840,9 +7845,26 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	// taskfailure.Classify path records the failure with the same
 	// "start task failed: <…>" string and the same failure_reason
 	// taxonomy as before — see MUL-2946 for the classifier contract.
+	if task.SecretLeaseID != "" {
+		defer d.clearTaskSecret(task.SecretLeaseID)
+	}
 	if err := d.client.StartTask(prepareCtx, task.ID); err != nil {
 		stopPrepareLease()
 		return TaskResult{}, fmt.Errorf("start task failed: %w", err)
+	}
+	var leasedSecret taskSecret
+	if task.SecretLeaseID != "" {
+		if err := d.client.PrepareTaskSecretDestination(prepareCtx, task.RuntimeID, task.ID, task.SecretLeaseID); err != nil {
+			return TaskResult{}, fmt.Errorf("prepare task secret destination: %w", err)
+		}
+		leasedSecret, err = d.takeTaskSecret(prepareCtx, task.ID, task.SecretLeaseID)
+		if err != nil || !leasedSecret.validFor(task.ID) {
+			d.clearTaskSecret(task.SecretLeaseID)
+			if err == nil {
+				err = errTaskSecretUnavailable
+			}
+			return TaskResult{}, fmt.Errorf("task secret lease: %w", err)
+		}
 	}
 	stopPrepareLease()
 	prepareComplete = true
@@ -7972,6 +7994,11 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		agentCustomEnv = task.Agent.CustomEnv
 	}
 	layerCustomEnvAndHermesHome(agentEnv, agentCustomEnv, env.HermesHome, d.logger)
+	if leasedSecret.secret != "" {
+		// Apply after custom_env so a durable agent setting cannot redirect the
+		// brokered credential. The source lease is removed on every exit path.
+		agentEnv[leasedSecret.envKey] = leasedSecret.secret
+	}
 	if provider == "reasonix" {
 		reasonixStateHome, err := prepareReasonixTaskStateHome(d.cfg.Profile, task.RuntimeID, task.AgentID)
 		if err != nil {

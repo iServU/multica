@@ -437,6 +437,14 @@ func (c *Client) StartTask(ctx context.Context, taskID string) error {
 	return c.postJSON(ctx, fmt.Sprintf("/api/daemon/tasks/%s/start", taskID), map[string]any{}, nil)
 }
 
+// PrepareTaskSecretDestination arms an opaque lease only after the task's
+// launch directory has been created and the server has accepted StartTask.
+func (c *Client) PrepareTaskSecretDestination(ctx context.Context, runtimeID, taskID, leaseID string) error {
+	return c.postJSON(ctx, fmt.Sprintf("/api/daemon/runtimes/%s/tasks/%s/secret-destination", runtimeID, taskID), map[string]any{
+		"lease_id": leaseID,
+	}, nil)
+}
+
 // MarkTaskWaitingLocalDirectory parks a freshly-dispatched task in the
 // waiting_local_directory state on the server. The daemon calls this after
 // it has claimed a task whose project carries a local_directory resource

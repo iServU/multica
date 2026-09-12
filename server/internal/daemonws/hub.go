@@ -11,6 +11,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/multica-ai/multica/server/pkg/protocol"
+	"github.com/oklog/ulid/v2"
 )
 
 const (
@@ -473,6 +474,27 @@ func (h *Hub) NotifyPendingWork(runtimeID, kind string) {
 // when this best-effort notification is missed.
 func (h *Hub) NotifyRuntimeGone(runtimeID string) {
 	h.notifyRuntimeGone(runtimeID, "")
+}
+
+// DeliverTaskSecret sends a one-use lease value to the authenticated daemon
+// watching runtimeID. The caller is responsible for authorizing the broker and
+// checking that the lease was prepared for taskID. The Hub never persists it.
+func (h *Hub) DeliverTaskSecret(runtimeID, taskID, leaseID, envKey, secret string) bool {
+	if h == nil || runtimeID == "" || taskID == "" || leaseID == "" || envKey == "" || secret == "" {
+		return false
+	}
+	payload, err := json.Marshal(protocol.TaskSecretPayload{
+		TaskID: taskID, LeaseID: leaseID, EnvKey: envKey, Secret: secret,
+	})
+	if err != nil {
+		return false
+	}
+	data, err := json.Marshal(protocol.Message{Type: protocol.EventDaemonTaskSecret, Payload: payload})
+	if err != nil {
+		return false
+	}
+	delivered, _ := h.notifyFrame(runtimeID, data, ulid.Make().String())
+	return delivered
 }
 
 func (h *Hub) notifyTaskAvailable(runtimeID, taskID, eventID string) {

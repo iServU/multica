@@ -403,6 +403,14 @@ func (d *Daemon) readTaskWakeupMessagesForConnection(conn *websocket.Conn, taskW
 				d.logger.Debug("task wakeup received", "runtime_id", payload.RuntimeID, "task_id", payload.TaskID)
 			}
 			signalTaskWakeup(taskWakeups, payload.RuntimeID)
+		case protocol.EventDaemonTaskSecret:
+			var payload protocol.TaskSecretPayload
+			if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+				d.logger.Debug("task secret websocket invalid payload", "error", err)
+				continue
+			}
+			// Do not include payload fields in logs: this frame contains a secret.
+			d.acceptTaskSecret(taskSecret{taskID: payload.TaskID, leaseID: payload.LeaseID, envKey: payload.EnvKey, secret: payload.Secret})
 		case protocol.EventDaemonRuntimeProfilesChanged:
 			var payload protocol.RuntimeProfilesChangedPayload
 			if err := json.Unmarshal(msg.Payload, &payload); err != nil {

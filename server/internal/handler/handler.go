@@ -195,6 +195,8 @@ type Handler struct {
 	TxStarter              txStarter
 	Hub                    *realtime.Hub
 	DaemonHub              *daemonws.Hub
+	TaskSecretLeases       *TaskSecretLeaseStore
+	TaskSecretRevoker      func(taskID string)
 	DaemonProfileRefresh   RuntimeProfileRefreshNotifier
 	DaemonWorkspaceRefresh WorkspaceSetRefreshNotifier
 	DaemonRuntimeGone      RuntimeGoneNotifier
@@ -470,6 +472,7 @@ func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *event
 		TxStarter:                    txStarter,
 		Hub:                          hub,
 		DaemonHub:                    daemonHub,
+		TaskSecretLeases:             NewTaskSecretLeaseStore(),
 		DaemonProfileRefresh:         daemonProfileRefresh,
 		DaemonWorkspaceRefresh:       daemonWorkspaceRefresh,
 		DaemonRuntimeGone:            daemonRuntimeGone,

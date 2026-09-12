@@ -116,6 +116,15 @@ type TaskAvailablePayload struct {
 	TaskID    string `json:"task_id,omitempty"`
 }
 
+// TaskSecretPayload is delivered only after the daemon has prepared the task
+// destination. Secret is never part of a task response or durable record.
+type TaskSecretPayload struct {
+	TaskID  string `json:"task_id"`
+	LeaseID string `json:"lease_id"`
+	EnvKey  string `json:"env_key"`
+	Secret  string `json:"secret"`
+}
+
 // RuntimeProfilesChangedPayload is sent from server to daemon as a wakeup hint
 // when a workspace custom runtime profile is created, edited, disabled, or
 // deleted. The daemon still fetches profiles and registers runtimes through the

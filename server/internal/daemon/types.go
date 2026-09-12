@@ -173,6 +173,9 @@ type Task struct {
 	// Empty or non-task-scoped values are fatal for writable agent tasks; the
 	// daemon must not fall back to its own token. See MUL-3292.
 	AuthToken string `json:"auth_token,omitempty"`
+	// SecretLeaseID is an opaque handle only. The secret arrives later over the
+	// authenticated daemon control channel after the launch destination exists.
+	SecretLeaseID string `json:"secret_lease_id,omitempty"`
 }
 
 // ChatAttachmentMeta is the structured attachment metadata the daemon

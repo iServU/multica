@@ -2109,6 +2109,9 @@ func claimResponseAgentIdentityMatches(resp AgentTaskResponse) bool {
 func (h *Handler) buildClaimedTaskResponse(r *http.Request, task *db.AgentTaskQueue, runtime db.AgentRuntime, runtimeID, runtimeWorkspaceID string) (resp AgentTaskResponse, deliveredCommentIDs []pgtype.UUID, agentSkillCount, builtinSkillCount int, failure *claimBuildFailure) {
 	// Build response with fresh agent data (name + skills + custom_env + custom_args).
 	resp = taskToResponse(*task, runtimeWorkspaceID)
+	if h.TaskSecretLeases != nil {
+		resp.SecretLeaseID = h.TaskSecretLeases.Create(uuidToString(task.ID), runtimeID)
+	}
 	var issueNumber int32
 	// Claim-only capability: this server resolves the squad-leader role on the
 	// wire (is_leader_task / squad_id), so the daemon must not re-derive it
@@ -3824,6 +3827,7 @@ func (h *Handler) CompleteTask(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	h.terminalTaskSecret(taskID)
 
 	var req TaskCompleteRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -4539,6 +4543,7 @@ func (h *Handler) FailTask(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	h.terminalTaskSecret(taskID)
 
 	var req TaskFailRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -4559,6 +4564,7 @@ func (h *Handler) FailTask(w http.ResponseWriter, r *http.Request) {
 // transaction, token revocation and runtime wake-up as one the daemon reported
 // as failed itself.
 func (h *Handler) failTask(w http.ResponseWriter, r *http.Request, taskID, workspaceID string, req TaskFailRequest) {
+	h.terminalTaskSecret(taskID)
 	// MUL-5305: SessionRolloutMissing is applied inside FailTask's terminal
 	// transaction — forcing session_id NULL (overriding the COALESCE that would
 	// keep a stale mid-flight pin) and flagging the row in the same commit that
