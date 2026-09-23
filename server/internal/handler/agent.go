@@ -16,6 +16,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/analytics"
@@ -51,6 +52,7 @@ type AgentConversationStarter struct {
 type AgentResponse struct {
 	ID          string `json:"id"`
 	WorkspaceID string `json:"workspace_id"`
+	Revision    int64  `json:"revision"`
 	// RuntimeID is the empty string when the agent is unbound — it kept its
 	// configuration and history when its runtime was deleted, and needs a new
 	// runtime before it can run again (MUL-5559). The wire type stays a string
@@ -208,6 +210,7 @@ func (h *Handler) agentToResponse(a db.Agent) AgentResponse {
 	return AgentResponse{
 		ID:                       uuidToString(a.ID),
 		WorkspaceID:              uuidToString(a.WorkspaceID),
+		Revision:                 a.Revision,
 		RuntimeID:                uuidToString(a.RuntimeID),
 		RuntimeBound:             a.RuntimeID.Valid,
 		Name:                     a.Name,
@@ -1654,6 +1657,7 @@ func (h *Handler) CreateAgent(w http.ResponseWriter, r *http.Request) {
 }
 
 type UpdateAgentRequest struct {
+	ExpectedRevision      *int64                      `json:"expected_revision,omitempty"`
 	Name                 *string                     `json:"name"`
 	Description          *string                     `json:"description"`
 	Instructions         *string                     `json:"instructions"`
@@ -1908,9 +1912,26 @@ func (h *Handler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "custom_env is no longer accepted on this endpoint; use PUT /api/agents/{id}/env (or `multica agent env set`)")
 		return
 	}
+	if _, promptIncluded := rawFields["instructions"]; promptIncluded {
+		if req.ExpectedRevision == nil {
+			writeError(w, http.StatusBadRequest, "expected_revision is required when updating instructions")
+			return
+		}
+		if *req.ExpectedRevision < 1 {
+			writeError(w, http.StatusBadRequest, "expected_revision must be a positive integer")
+			return
+		}
+		if existing.Revision != *req.ExpectedRevision {
+			writeRevisionConflict(w, "agent", existing.ID, *req.ExpectedRevision, existing.Revision)
+			return
+		}
+	}
 
 	params := db.UpdateAgentParams{
 		ID: existing.ID,
+	}
+	if req.ExpectedRevision != nil {
+		params.ExpectedRevision = pgtype.Int8{Int64: *req.ExpectedRevision, Valid: true}
 	}
 	if req.Name != nil {
 		params.Name = pgtype.Text{String: *req.Name, Valid: true}
@@ -2234,6 +2255,13 @@ func (h *Handler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 
 	updated, err := h.Queries.UpdateAgent(r.Context(), params)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) && req.ExpectedRevision != nil {
+			current, reloadErr := h.Queries.GetAgent(r.Context(), existing.ID)
+			if reloadErr == nil {
+				writeRevisionConflict(w, "agent", current.ID, *req.ExpectedRevision, current.Revision)
+				return
+			}
+		}
 		// Unique constraint on (workspace_id, name) — mirror CreateAgent and
 		// return a clear conflict instead of a 500 that leaks the raw
 		// constraint name. The name can still be held by an *archived* agent

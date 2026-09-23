@@ -3866,7 +3866,7 @@ func (q *Queries) FailStaleTasks(ctx context.Context, arg FailStaleTasksParams) 
 }
 
 const getAgent = `-- name: GetAgent :one
-SELECT id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, composio_toolkit_allowlist, permission_mode, kind, system_key, disabled_runtime_skills, service_tier, conversation_starters FROM agent
+SELECT id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, composio_toolkit_allowlist, permission_mode, kind, system_key, disabled_runtime_skills, service_tier, conversation_starters, revision FROM agent
 WHERE id = $1
 `
 
@@ -3903,12 +3903,13 @@ func (q *Queries) GetAgent(ctx context.Context, id pgtype.UUID) (Agent, error) {
 		&i.DisabledRuntimeSkills,
 		&i.ServiceTier,
 		&i.ConversationStarters,
+		&i.Revision,
 	)
 	return i, err
 }
 
 const getAgentBySystemKey = `-- name: GetAgentBySystemKey :one
-SELECT id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, composio_toolkit_allowlist, permission_mode, kind, system_key, disabled_runtime_skills, service_tier, conversation_starters FROM agent
+SELECT id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, composio_toolkit_allowlist, permission_mode, kind, system_key, disabled_runtime_skills, service_tier, conversation_starters, revision FROM agent
 WHERE workspace_id = $1 AND system_key = $2 AND archived_at IS NULL
 ORDER BY created_at ASC, id ASC
 LIMIT 1
@@ -3955,6 +3956,7 @@ func (q *Queries) GetAgentBySystemKey(ctx context.Context, arg GetAgentBySystemK
 		&i.DisabledRuntimeSkills,
 		&i.ServiceTier,
 		&i.ConversationStarters,
+		&i.Revision,
 	)
 	return i, err
 }
@@ -4048,7 +4050,7 @@ func (q *Queries) GetAgentForUpdate(ctx context.Context, id pgtype.UUID) (Agent,
 }
 
 const getAgentInWorkspace = `-- name: GetAgentInWorkspace :one
-SELECT id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, composio_toolkit_allowlist, permission_mode, kind, system_key, disabled_runtime_skills, service_tier, conversation_starters FROM agent
+SELECT id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, composio_toolkit_allowlist, permission_mode, kind, system_key, disabled_runtime_skills, service_tier, conversation_starters, revision FROM agent
 WHERE id = $1 AND workspace_id = $2 AND kind = 'user'
 `
 
@@ -4090,6 +4092,7 @@ func (q *Queries) GetAgentInWorkspace(ctx context.Context, arg GetAgentInWorkspa
 		&i.DisabledRuntimeSkills,
 		&i.ServiceTier,
 		&i.ConversationStarters,
+		&i.Revision,
 	)
 	return i, err
 }
@@ -8692,10 +8695,11 @@ UPDATE agent SET
     thinking_level = COALESCE($17, thinking_level),
     service_tier = COALESCE($18, service_tier),
     conversation_starters = COALESCE($19, conversation_starters),
-    composio_toolkit_allowlist = COALESCE($20::text[], composio_toolkit_allowlist),
+	composio_toolkit_allowlist = COALESCE($20::text[], composio_toolkit_allowlist),
+    revision = revision + 1,
     updated_at = now()
-WHERE id = $1
-RETURNING id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, composio_toolkit_allowlist, permission_mode, kind, system_key, disabled_runtime_skills, service_tier, conversation_starters
+WHERE id = $1 AND ($21::bigint IS NULL OR revision = $21::bigint)
+RETURNING id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, composio_toolkit_allowlist, permission_mode, kind, system_key, disabled_runtime_skills, service_tier, conversation_starters, revision
 `
 
 type UpdateAgentParams struct {
@@ -8719,6 +8723,7 @@ type UpdateAgentParams struct {
 	ServiceTier              pgtype.Text `json:"service_tier"`
 	ConversationStarters     []byte      `json:"conversation_starters"`
 	ComposioToolkitAllowlist []string    `json:"composio_toolkit_allowlist"`
+	ExpectedRevision         pgtype.Int8 `json:"expected_revision"`
 }
 
 // composio_toolkit_allowlist is set wholesale: the API layer is responsible
@@ -8749,6 +8754,7 @@ func (q *Queries) UpdateAgent(ctx context.Context, arg UpdateAgentParams) (Agent
 		arg.ServiceTier,
 		arg.ConversationStarters,
 		arg.ComposioToolkitAllowlist,
+		arg.ExpectedRevision,
 	)
 	var i Agent
 	err := row.Scan(
@@ -8781,6 +8787,7 @@ func (q *Queries) UpdateAgent(ctx context.Context, arg UpdateAgentParams) (Agent
 		&i.DisabledRuntimeSkills,
 		&i.ServiceTier,
 		&i.ConversationStarters,
+		&i.Revision,
 	)
 	return i, err
 }

@@ -144,8 +144,10 @@ UPDATE agent SET
     service_tier = COALESCE(sqlc.narg('service_tier'), service_tier),
     conversation_starters = COALESCE(sqlc.narg('conversation_starters'), conversation_starters),
     composio_toolkit_allowlist = COALESCE(sqlc.narg('composio_toolkit_allowlist')::text[], composio_toolkit_allowlist),
+    revision = revision + 1,
     updated_at = now()
 WHERE id = $1
+  AND (sqlc.narg('expected_revision')::bigint IS NULL OR revision = sqlc.narg('expected_revision')::bigint)
 RETURNING *;
 
 -- name: ClearAgentComposioToolkitAllowlist :one

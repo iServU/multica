@@ -77,8 +77,10 @@ UPDATE autopilot SET
     execution_mode = COALESCE(sqlc.narg('execution_mode'), execution_mode),
     issue_title_template = sqlc.narg('issue_title_template'),
     project_id = sqlc.narg('project_id'),
+    revision = revision + 1,
     updated_at = now()
 WHERE id = $1
+  AND (sqlc.narg('expected_revision')::bigint IS NULL OR revision = sqlc.narg('expected_revision')::bigint)
 RETURNING *;
 
 -- name: ArchiveAutopilot :exec
