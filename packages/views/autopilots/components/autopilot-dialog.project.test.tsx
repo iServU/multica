@@ -94,7 +94,20 @@ vi.mock("../../editor", () => ({
       />
     );
   },
-  ContentEditor: ({ placeholder }: any) => <textarea aria-label="runbook" placeholder={placeholder} />,
+  ContentEditor: ({ defaultValue, placeholder, onUpdate }: any) => {
+    const [value, setValue] = useState(defaultValue ?? "");
+    return (
+      <textarea
+        aria-label="runbook"
+        placeholder={placeholder}
+        value={value}
+        onChange={(event) => {
+          setValue(event.target.value);
+          onUpdate?.(event.target.value);
+        }}
+      />
+    );
+  },
 }));
 
 vi.mock("../../common/actor-avatar", () => ({
@@ -289,8 +302,14 @@ describe("AutopilotDialog project section", () => {
     const user = userEvent.setup();
     const view = renderEditDialog("run_only", "proj-1", 7, "Original title", "Original server text");
     await user.type(screen.getByLabelText("title"), " local");
+    await user.clear(screen.getByLabelText("runbook"));
+    await user.type(screen.getByLabelText("runbook"), "Local runbook draft");
     await user.click(saveButton());
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Loading the latest server version"));
+    expect(mockUpdateAutopilot.mock.calls[0]?.[0]).toMatchObject({
+      description: "Local runbook draft",
+      expected_revision: 7,
+    });
 
     view.rerender(editDialogTree("run_only", "proj-1", 8, "Server title", "Fresh server text"));
     expect(screen.getByRole("alert").textContent).toContain("Server version · revision 8");
@@ -303,6 +322,30 @@ describe("AutopilotDialog project section", () => {
     await user.click(screen.getByRole("button", { name: "Keep my draft" }));
     fireEvent.keyDown(screen.getByLabelText("title"), { key: "Enter" });
     await waitFor(() => expect(mockUpdateAutopilot).toHaveBeenCalledTimes(2));
-    expect(mockUpdateAutopilot.mock.calls[1]?.[0]).toMatchObject({ expected_revision: 8 });
+    expect(mockUpdateAutopilot.mock.calls[1]?.[0]).toMatchObject({
+      description: "Local runbook draft",
+      expected_revision: 8,
+    });
+  });
+
+  it("adopts the refreshed server version before an autopilot retry", async () => {
+    mockUpdateAutopilot
+      .mockRejectedValueOnce(new ApiError("stale", 409, "Conflict", { code: "revision_conflict" }))
+      .mockResolvedValueOnce({ id: AUTOPILOT_ID });
+    const user = userEvent.setup();
+    const view = renderEditDialog("run_only", "proj-1", 7, "Original title", "Original server text");
+    await user.clear(screen.getByLabelText("runbook"));
+    await user.type(screen.getByLabelText("runbook"), "Local runbook draft");
+    await user.click(saveButton());
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Loading the latest server version"));
+
+    view.rerender(editDialogTree("run_only", "proj-1", 8, "Server title", "Fresh server text"));
+    await user.click(screen.getByRole("button", { name: "Use server version" }));
+    await user.click(saveButton());
+    await waitFor(() => expect(mockUpdateAutopilot).toHaveBeenCalledTimes(2));
+    expect(mockUpdateAutopilot.mock.calls[1]?.[0]).toMatchObject({
+      description: "Fresh server text",
+      expected_revision: 8,
+    });
   });
 });

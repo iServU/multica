@@ -236,6 +236,30 @@ describe("InstructionsTab persisted-state synchronization", () => {
       conversation_starters: [persistedPrompt],
     });
   });
+
+  it("adopts the refreshed server prompt before an agent retry", async () => {
+    const onSave = vi
+      .fn()
+      .mockRejectedValueOnce(new ApiError("stale", 409, "Conflict", { code: "revision_conflict" }))
+      .mockResolvedValueOnce(undefined);
+    const user = userEvent.setup();
+    const { rerender } = render(tab({ ...baseAgent, revision: 7 }, onSave));
+    const instructions = screen.getByLabelText("System prompt");
+    await user.clear(instructions);
+    await user.type(instructions, "Local draft");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    rerender(tab({ ...baseAgent, revision: 8, instructions: "Server version" }, onSave));
+    await user.click(screen.getByRole("button", { name: "Use server version" }));
+    await user.type(screen.getByLabelText("System prompt"), " updated");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2));
+    expect(onSave).toHaveBeenLastCalledWith({
+      instructions: "Server version updated",
+      expected_revision: 8,
+      conversation_starters: [persistedPrompt],
+    });
+  });
 });
 
 // The "customize" link in a chat's empty state lands here with ?focus=. The
