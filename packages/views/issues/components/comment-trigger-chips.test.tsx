@@ -38,6 +38,38 @@ describe("CommentTriggerChips", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  it("describes @all semantics without promising any recipients", () => {
+    renderWithI18n(
+      <CommentTriggerChips
+        agents={[]}
+        hasAllMembersMention
+        suppressedAgentIds={new Set()}
+        onToggle={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByText("Member broadcast · @all does not start agents"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/notif/i)).not.toBeInTheDocument();
+  });
+
+  it("keeps explicit agent triggers visible alongside @all semantics", () => {
+    renderWithI18n(
+      <CommentTriggerChips
+        agents={[bob]}
+        hasAllMembersMention
+        suppressedAgentIds={new Set()}
+        onToggle={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByText("Member broadcast · @all does not start agents"),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button")).toHaveTextContent("Will start when sent");
+  });
+
   it("renders a single agent as a full sentence and toggles on click", () => {
     const onToggle = vi.fn();
     renderWithI18n(
@@ -118,5 +150,74 @@ describe("CommentTriggerChips", () => {
     expect(row).toHaveTextContent("Bob");
     fireEvent.click(row);
     expect(onToggle).toHaveBeenCalledWith("agent-2");
+  });
+
+  it("names a blocked mention with an error reason instead of a count", () => {
+    renderWithI18n(
+      <CommentTriggerChips
+        agents={[]}
+        blocked={[
+          {
+            target_type: "agent",
+            target_id: "deadbeef-0001",
+            status: "blocked",
+            reason_code: "invocation_not_allowed",
+          },
+        ]}
+        draftContent="[@Go](mention://agent/deadbeef-0001) hi"
+        suppressedAgentIds={new Set()}
+        onToggle={vi.fn()}
+      />,
+    );
+
+    // The name the user typed (not a "1 mention won't trigger" count) plus the
+    // short reason, which must not assert a permission cause the server never
+    // gave: invocation_not_allowed also covers an unresolved id (MUL-5548).
+    expect(screen.getByText("Go")).toBeInTheDocument();
+    expect(screen.getByText("Not found or no permission")).toBeInTheDocument();
+    expect(screen.queryByText(/won't trigger/i)).not.toBeInTheDocument();
+  });
+
+  it("falls back to the reason alone when the label can't be correlated", () => {
+    renderWithI18n(
+      <CommentTriggerChips
+        agents={[]}
+        blocked={[
+          {
+            target_type: "agent",
+            target_id: "deadbeef-0001",
+            status: "blocked",
+            reason_code: "invocation_not_allowed",
+          },
+        ]}
+        // No matching mention markup for the blocked target → no label available.
+        draftContent="plain text"
+        suppressedAgentIds={new Set()}
+        onToggle={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Not found or no permission")).toBeInTheDocument();
+    expect(screen.queryByText("Go")).not.toBeInTheDocument();
+  });
+
+  it("renders one named chip per blocked mention", () => {
+    renderWithI18n(
+      <CommentTriggerChips
+        agents={[]}
+        blocked={[
+          { target_type: "agent", target_id: "deadbeef-0001", status: "blocked", reason_code: "invocation_not_allowed" },
+          { target_type: "squad", target_id: "cafef00d-0002", status: "blocked", reason_code: "runtime_offline" },
+        ]}
+        draftContent="[@Go](mention://agent/deadbeef-0001) [@Ops](mention://squad/cafef00d-0002)"
+        suppressedAgentIds={new Set()}
+        onToggle={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Go")).toBeInTheDocument();
+    expect(screen.getByText("Not found or no permission")).toBeInTheDocument();
+    expect(screen.getByText("Ops")).toBeInTheDocument();
+    expect(screen.getByText("Runtime offline")).toBeInTheDocument();
   });
 });

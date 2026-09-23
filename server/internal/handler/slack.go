@@ -97,7 +97,7 @@ type RegisterSlackBYORequest struct {
 // credentials — BYO is exactly the path for deployments without a hosted app.
 func (h *Handler) RegisterSlackBYO(w http.ResponseWriter, r *http.Request) {
 	if h.SlackInstall == nil {
-		writeError(w, http.StatusServiceUnavailable, "slack integration not enabled")
+		writeFeatureDisabled(w, "slack_not_configured", "slack integration not enabled")
 		return
 	}
 	userID, ok := requireUserID(w, r)
@@ -145,8 +145,12 @@ func (h *Handler) RegisterSlackBYO(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case errors.Is(err, slack.ErrInvalidBotToken), errors.Is(err, slack.ErrInvalidAppToken), errors.Is(err, slack.ErrTokenAppMismatch):
 			writeError(w, http.StatusBadRequest, err.Error())
+		case errors.Is(err, slack.ErrTeamOwnedBySameWorkspace):
+			writeError(w, http.StatusConflict, "this Slack app is already connected to another agent in this workspace — disconnect it there first, then connect it here")
+		case errors.Is(err, slack.ErrTeamOwnedByArchivedAgent):
+			writeError(w, http.StatusConflict, "this Slack app is connected to an archived agent in this workspace — restore that agent, or disconnect its bot, before connecting it here")
 		case errors.Is(err, slack.ErrTeamOwnedByAnotherWorkspace):
-			writeError(w, http.StatusConflict, "this Slack app is already connected to a different Multica workspace")
+			writeError(w, http.StatusConflict, "this Slack app is already connected to a different Multica workspace — disconnect it there before connecting it here")
 		default:
 			// The dominant non-sentinel failure here is auth.test rejecting the
 			// pasted bot token (a user error), so guide the user to recheck the
@@ -177,7 +181,7 @@ func (h *Handler) publishSlackInstallationCreated(row db.ChannelInstallation, ac
 // audit; a re-install (re-pasting the app's tokens) flips status back to 'active'.
 func (h *Handler) RevokeSlackInstallation(w http.ResponseWriter, r *http.Request) {
 	if h.SlackInstall == nil {
-		writeError(w, http.StatusServiceUnavailable, "slack integration not configured")
+		writeFeatureDisabled(w, "slack_not_configured", "slack integration not configured")
 		return
 	}
 	userID, ok := requireUserID(w, r)
@@ -235,7 +239,7 @@ type RedeemSlackBindingTokenResponse struct {
 //   - 403 Forbidden: redeemer is not a workspace member
 func (h *Handler) RedeemSlackBindingToken(w http.ResponseWriter, r *http.Request) {
 	if h.SlackBindingTokens == nil {
-		writeError(w, http.StatusServiceUnavailable, "slack integration not configured")
+		writeFeatureDisabled(w, "slack_not_configured", "slack integration not configured")
 		return
 	}
 	userID, ok := requireUserID(w, r)

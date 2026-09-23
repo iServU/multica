@@ -13,7 +13,7 @@ import (
 // test helper so these integration tests keep asserting enqueue side effects.
 func enqueueMentionedAgentTasksForTest(t *testing.T, ctx context.Context, issue db.Issue, comment db.Comment, parentComment *db.Comment, authorType, authorID string) {
 	t.Helper()
-	triggers := testHandler.computeCommentAgentTriggers(ctx, issue, comment.Content, parentComment, authorType, authorID, commentTriggerComputeOptions{})
+	triggers, _ := testHandler.computeCommentAgentTriggers(ctx, issue, comment.Content, parentComment, authorType, authorID, commentTriggerComputeOptions{})
 	testHandler.enqueueCommentAgentTriggers(ctx, issue, comment.ID, triggers)
 }
 
@@ -230,9 +230,9 @@ func TestEnqueueMentionedAgentTasks_SelfMentionDedupesAgainstPendingTask(t *test
 				t.Fatalf("reset tasks: %v", err)
 			}
 			if _, err := testPool.Exec(ctx, `
-				INSERT INTO agent_task_queue (agent_id, runtime_id, issue_id, status)
-				VALUES ($1, $2, $3, $4)
-			`, fx.JID, fx.RuntimeID, fx.IssueAID, tc.status); err != nil {
+				INSERT INTO agent_task_queue (agent_id, runtime_id, issue_id, status, trigger_comment_id)
+				VALUES ($1, $2, $3, $4, $5)
+			`, fx.JID, fx.RuntimeID, fx.IssueAID, tc.status, fx.CommentA.ID); err != nil {
 				t.Fatalf("seed %s task: %v", tc.status, err)
 			}
 

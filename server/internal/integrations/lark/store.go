@@ -71,17 +71,24 @@ type UserBinding struct {
 }
 
 // ChatSessionBinding is the flat view of a channel_chat_session_binding row.
-// Every field is a flat column (config is unused for feishu today), so this is
-// a pure copy with no JSON involved.
 type ChatSessionBinding struct {
 	ID             pgtype.UUID
 	ChatSessionID  pgtype.UUID
 	InstallationID pgtype.UUID
 	ChannelChatID  string
 	ChatType       string
-	CreatedAt      pgtype.Timestamptz
-	LastMessageID  pgtype.Text
-	LastThreadID   pgtype.Text
+	// Config carries the real chat id (larkBindingConfig) when ChannelChatID
+	// is a composite "chat:thread" topic-isolation key; "{}" otherwise.
+	Config        []byte
+	CreatedAt     pgtype.Timestamptz
+	LastMessageID pgtype.Text
+	LastThreadID  pgtype.Text
+	// LastSenderID is the channel-native id (open_id) of whoever sent the
+	// trigger LastMessageID refers to — the account an outbound reply
+	// @-mentions. Frozen per task via channel_task_delivery, never re-derived
+	// from the Multica member: one member can hold several open_ids on one
+	// installation, so a member-keyed lookup could name the wrong account.
+	LastSenderID pgtype.Text
 }
 
 // InboundMessageDedup is the flat view of a channel_inbound_message_dedup row.
@@ -215,7 +222,7 @@ func encodeBindingConfig(b UserBinding) ([]byte, error) {
 }
 
 // chatSessionBindingFromRow copies a channel_chat_session_binding row into the
-// flat domain struct. No JSON: every feishu field is already a flat column.
+// flat domain struct. Config stays raw bytes; outboundChatID decodes it.
 func chatSessionBindingFromRow(row db.ChannelChatSessionBinding) ChatSessionBinding {
 	return ChatSessionBinding{
 		ID:             row.ID,
@@ -223,6 +230,7 @@ func chatSessionBindingFromRow(row db.ChannelChatSessionBinding) ChatSessionBind
 		InstallationID: row.InstallationID,
 		ChannelChatID:  row.ChannelChatID,
 		ChatType:       row.ChatType,
+		Config:         row.Config,
 		CreatedAt:      row.CreatedAt,
 		LastMessageID:  row.LastMessageID,
 		LastThreadID:   row.LastThreadID,

@@ -90,8 +90,11 @@ func TestUpdateIssue_SquadPrivateLeader_PlainMemberBlocked(t *testing.T) {
 	}
 }
 
-// TestCreateIssue_SquadPrivateLeader_OwnerAllowed verifies that a workspace
-// owner CAN assign an issue to a squad with a private leader.
+// TestCreateIssue_SquadPrivateLeader_OwnerAllowed verifies that the LEADER
+// AGENT's owner can assign an issue to a squad with a private leader. Named
+// "OwnerAllowed" for the agent owner — a workspace owner/admin who does not own
+// the leader is denied (MUL-3963), which is what the sibling
+// PlainMemberBlocked / assertInvokeForbidden cases pin.
 func TestCreateIssue_SquadPrivateLeader_OwnerAllowed(t *testing.T) {
 	if testHandler == nil || testPool == nil {
 		t.Skip("database not available")
@@ -378,8 +381,8 @@ func TestChildDone_SquadPrivateLeader_AgentActorWakesLeader(t *testing.T) {
 	// depends on the completer being able to invoke the leader.
 	var workerTaskID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO agent_task_queue (agent_id, runtime_id, status, priority, issue_id, originator_user_id)
-		VALUES ($1, (SELECT runtime_id FROM agent WHERE id = $1), 'running', 0, $2, $3)
+		INSERT INTO agent_task_queue (agent_id, runtime_id, status, priority, issue_id, originator_user_id, accountable_user_id)
+		VALUES ($1, (SELECT runtime_id FROM agent WHERE id = $1), 'running', 0, $2, $3, $3)
 		RETURNING id
 	`, workerAgentID, child.ID, memberID).Scan(&workerTaskID); err != nil {
 		t.Fatalf("create worker task: %v", err)
@@ -458,8 +461,8 @@ func TestComment_SquadPrivateLeader_AgentActorAllowed(t *testing.T) {
 	// the private leader.
 	var taskID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO agent_task_queue (agent_id, runtime_id, status, priority, issue_id, originator_user_id)
-		VALUES ($1, (SELECT runtime_id FROM agent WHERE id = $1), 'running', 0, $2, $3)
+		INSERT INTO agent_task_queue (agent_id, runtime_id, status, priority, issue_id, originator_user_id, accountable_user_id)
+		VALUES ($1, (SELECT runtime_id FROM agent WHERE id = $1), 'running', 0, $2, $3, $3)
 		RETURNING id
 	`, otherAgentID, issueID, ownerID).Scan(&taskID); err != nil {
 		t.Fatalf("create agent task: %v", err)
