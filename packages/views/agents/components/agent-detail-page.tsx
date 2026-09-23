@@ -197,6 +197,7 @@ export function AgentDetailPage({ agentId }: AgentDetailPageProps) {
         );
       }
       void qc.invalidateQueries({ queryKey });
+      void qc.invalidateQueries({ queryKey: detailQueryKey });
       toast.error(e instanceof Error ? e.message : t(($) => $.detail.update_failed_toast));
       throw e;
     }
