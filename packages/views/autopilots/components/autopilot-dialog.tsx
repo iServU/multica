@@ -344,7 +344,7 @@ export function AutopilotDialog(props: AutopilotDialogProps) {
   const assigneeErrorId = useId();
 
   const handleSubmit = async () => {
-    if (submitting) return;
+    if (submitting || (conflict && !conflict.resolved)) return;
     if (missingField !== null) {
       // Reveal the inline errors and take the user to the field at fault;
       // focusing scrolls the config column to it on its own.
