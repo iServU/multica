@@ -85,7 +85,7 @@ RETURNING *;
 
 -- name: ArchiveAutopilot :exec
 UPDATE autopilot
-SET status = 'archived', pause_reason = NULL, updated_at = now()
+SET status = 'archived', pause_reason = NULL, revision = revision + 1, updated_at = now()
 WHERE id = $1;
 
 -- name: PauseAutopilotsByUnboundAgents :many
@@ -96,6 +96,7 @@ WHERE id = $1;
 UPDATE autopilot a
 SET status = 'paused',
     pause_reason = 'agent_runtime_required',
+    revision = revision + 1,
     updated_at = now()
 WHERE a.status = 'active'
   AND (
@@ -119,6 +120,7 @@ RETURNING a.*;
 UPDATE autopilot
 SET status = 'paused',
     pause_reason = 'agent_runtime_required',
+    revision = revision + 1,
     updated_at = now()
 WHERE status = 'active'
   AND assignee_type = 'squad'

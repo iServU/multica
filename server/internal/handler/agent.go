@@ -1912,6 +1912,12 @@ func (h *Handler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "custom_env is no longer accepted on this endpoint; use PUT /api/agents/{id}/env (or `multica agent env set`)")
 		return
 	}
+	for key := range rawFields {
+		if strings.EqualFold(key, "instructions") && key != "instructions" {
+			writeError(w, http.StatusBadRequest, "instructions must use the canonical JSON key")
+			return
+		}
+	}
 	if _, promptIncluded := rawFields["instructions"]; promptIncluded {
 		if req.ExpectedRevision == nil {
 			writeError(w, http.StatusBadRequest, "expected_revision is required when updating instructions")
@@ -2261,6 +2267,14 @@ func (h *Handler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 				writeRevisionConflict(w, "agent", current.ID, *req.ExpectedRevision, current.Revision)
 				return
 			}
+			if errors.Is(reloadErr, pgx.ErrNoRows) {
+				writeError(w, http.StatusNotFound, "agent not found")
+				return
+			}
+			slog.Warn("reload agent after revision conflict failed",
+				append(logger.RequestAttrs(r), "error", reloadErr, "agent_id", id)...)
+			writeError(w, http.StatusInternalServerError, "failed to reload agent after revision conflict")
+			return
 		}
 		// Unique constraint on (workspace_id, name) — mirror CreateAgent and
 		// return a clear conflict instead of a 500 that leaks the raw

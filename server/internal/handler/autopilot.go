@@ -1067,6 +1067,12 @@ func (h *Handler) UpdateAutopilot(w http.ResponseWriter, r *http.Request) {
 	}
 	var rawFields map[string]json.RawMessage
 	json.Unmarshal(bodyBytes, &rawFields)
+	for key := range rawFields {
+		if strings.EqualFold(key, "description") && key != "description" {
+			writeError(w, http.StatusBadRequest, "description must use the canonical JSON key")
+			return
+		}
+	}
 	if _, descriptionIncluded := rawFields["description"]; descriptionIncluded {
 		if req.ExpectedRevision == nil {
 			writeError(w, http.StatusBadRequest, "expected_revision is required when updating description")
@@ -1233,6 +1239,21 @@ func (h *Handler) UpdateAutopilot(w http.ResponseWriter, r *http.Request) {
 			"code":  "autopilot_update_conflict",
 		})
 		return
+	}
+	if _, sent := rawFields["description"]; !sent {
+		params.Description = lockedPrev.Description
+	}
+	if _, sent := rawFields["issue_title_template"]; !sent {
+		params.IssueTitleTemplate = lockedPrev.IssueTitleTemplate
+	}
+	if _, sent := rawFields["project_id"]; !sent {
+		params.ProjectID = lockedPrev.ProjectID
+	}
+	if _, sent := rawFields["assignee_type"]; !sent {
+		params.AssigneeType = pgtype.Text{}
+	}
+	if _, sent := rawFields["assignee_id"]; !sent {
+		params.AssigneeID = pgtype.UUID{}
 	}
 
 	autopilot, err := qtx.UpdateAutopilot(r.Context(), params)

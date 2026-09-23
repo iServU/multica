@@ -83,7 +83,7 @@ func (q *Queries) AdvanceTriggerNextRun(ctx context.Context, arg AdvanceTriggerN
 
 const archiveAutopilot = `-- name: ArchiveAutopilot :exec
 UPDATE autopilot
-SET status = 'archived', pause_reason = NULL, updated_at = now()
+SET status = 'archived', pause_reason = NULL, revision = revision + 1, updated_at = now()
 WHERE id = $1
 `
 
@@ -1637,6 +1637,7 @@ const pauseAutopilotsByUnboundAgents = `-- name: PauseAutopilotsByUnboundAgents 
 UPDATE autopilot a
 SET status = 'paused',
     pause_reason = 'agent_runtime_required',
+    revision = revision + 1,
     updated_at = now()
 WHERE a.status = 'active'
   AND (
@@ -1700,6 +1701,7 @@ const pauseAutopilotsByUnrunnableSquad = `-- name: PauseAutopilotsByUnrunnableSq
 UPDATE autopilot
 SET status = 'paused',
     pause_reason = 'agent_runtime_required',
+    revision = revision + 1,
     updated_at = now()
 WHERE status = 'active'
   AND assignee_type = 'squad'

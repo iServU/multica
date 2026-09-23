@@ -113,6 +113,7 @@ UPDATE agent
 SET runtime_id = @runtime_id,
     runtime_mode = @runtime_mode,
     model = sqlc.narg('model'),
+    revision = revision + 1,
     updated_at = now()
 WHERE id = @id AND kind = 'system' AND system_key LIKE 'agent_builder:%'
 RETURNING *;
@@ -157,7 +158,7 @@ RETURNING *;
 -- toolkits" but distinct from "field never configured"). The API uses this
 -- dedicated query when the agent owner removes every toolkit; subsequent
 -- dispatch decisions treat NULL identically to `{}` (both -> no overlay).
-UPDATE agent SET composio_toolkit_allowlist = NULL, updated_at = now()
+UPDATE agent SET composio_toolkit_allowlist = NULL, revision = revision + 1, updated_at = now()
 WHERE id = $1
 RETURNING *;
 
@@ -165,19 +166,19 @@ RETURNING *;
 -- Explicit NULL-clear for thinking_level. COALESCE-based UpdateAgent cannot
 -- set the column back to NULL, so the API layer routes "user picked Default"
 -- through this dedicated query.
-UPDATE agent SET thinking_level = NULL, updated_at = now()
+UPDATE agent SET thinking_level = NULL, revision = revision + 1, updated_at = now()
 WHERE id = $1
 RETURNING *;
 
 -- name: ClearAgentServiceTier :one
 -- Explicit NULL-clear for service_tier. COALESCE-based UpdateAgent cannot
 -- set the column back to NULL, so the API routes "Runtime default" here.
-UPDATE agent SET service_tier = NULL, updated_at = now()
+UPDATE agent SET service_tier = NULL, revision = revision + 1, updated_at = now()
 WHERE id = $1
 RETURNING *;
 
 -- name: ClearAgentMcpConfig :one
-UPDATE agent SET mcp_config = NULL, updated_at = now()
+UPDATE agent SET mcp_config = NULL, revision = revision + 1, updated_at = now()
 WHERE id = $1
 RETURNING *;
 
@@ -188,18 +189,18 @@ RETURNING *;
 -- of custom_env handling so all env mutations flow through here and the
 -- handler's audit-log + **** sentinel guard.
 UPDATE agent
-SET custom_env = $2, updated_at = now()
+SET custom_env = $2, revision = revision + 1, updated_at = now()
 WHERE id = $1
 RETURNING *;
 
 -- name: UpdateAgentDisabledRuntimeSkills :one
 UPDATE agent
-SET disabled_runtime_skills = $2, updated_at = now()
+SET disabled_runtime_skills = $2, revision = revision + 1, updated_at = now()
 WHERE id = $1
 RETURNING *;
 
 -- name: ArchiveAgent :one
-UPDATE agent SET archived_at = now(), archived_by = $2, updated_at = now()
+UPDATE agent SET archived_at = now(), archived_by = $2, revision = revision + 1, updated_at = now()
 WHERE id = $1
 RETURNING *;
 
@@ -216,7 +217,7 @@ RETURNING *;
 -- it needs rebinding — but it stays visible and recoverable instead of
 -- vanishing.
 UPDATE agent
-SET archived_at = now(), archived_by = @archived_by, updated_at = now()
+SET archived_at = now(), archived_by = @archived_by, revision = revision + 1, updated_at = now()
 WHERE runtime_id = ANY(@runtime_ids::uuid[]) AND archived_at IS NULL
   AND (system_key IS NULL OR system_key = '')
 RETURNING *;
@@ -231,7 +232,7 @@ RETURNING *;
 -- lock. Returns the affected rows so the caller can broadcast
 -- agent:archived per agent.
 UPDATE agent
-SET archived_at = now(), archived_by = @archived_by, updated_at = now()
+SET archived_at = now(), archived_by = @archived_by, revision = revision + 1, updated_at = now()
 WHERE id = ANY(@agent_ids::uuid[]) AND archived_at IS NULL
 RETURNING *;
 
@@ -283,7 +284,7 @@ ORDER BY id
 FOR UPDATE;
 
 -- name: RestoreAgent :one
-UPDATE agent SET archived_at = NULL, archived_by = NULL, updated_at = now()
+UPDATE agent SET archived_at = NULL, archived_by = NULL, revision = revision + 1, updated_at = now()
 WHERE id = $1
 RETURNING *;
 
@@ -2787,7 +2788,7 @@ WHERE issue_id = $1
 ORDER BY created_at DESC;
 
 -- name: UpdateAgentStatus :one
-UPDATE agent SET status = $2, updated_at = now()
+UPDATE agent SET status = $2, revision = revision + 1, updated_at = now()
 WHERE id = $1
 RETURNING *;
 
@@ -2805,6 +2806,7 @@ WITH desired AS (
 )
 UPDATE agent AS a
 SET status = desired.status,
+    revision = revision + 1,
     updated_at = now()
 FROM desired
 WHERE a.id = $1 AND a.status IS DISTINCT FROM desired.status
