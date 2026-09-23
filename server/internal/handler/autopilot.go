@@ -202,7 +202,7 @@ func autopilotToResponse(a db.Autopilot, subscribers []db.AutopilotSubscriber) A
 	return AutopilotResponse{
 		ID:                 uuidToString(a.ID),
 		WorkspaceID:        uuidToString(a.WorkspaceID),
-		Revision:            a.Revision,
+		Revision:           a.Revision,
 		Title:              a.Title,
 		Description:        textToPtr(a.Description),
 		ProjectID:          uuidToPtr(a.ProjectID),
@@ -1227,7 +1227,7 @@ func (h *Handler) UpdateAutopilot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.ExpectedRevision == nil && (lockedPrev.UpdatedAt.Valid != prev.UpdatedAt.Valid ||
-		(lockedPrev.UpdatedAt.Valid && !lockedPrev.UpdatedAt.Time.Equal(prev.UpdatedAt.Time)) {
+		(lockedPrev.UpdatedAt.Valid && !lockedPrev.UpdatedAt.Time.Equal(prev.UpdatedAt.Time))) {
 		writeJSON(w, http.StatusConflict, map[string]any{
 			"error": "the autopilot changed while it was being edited; reload and try again.",
 			"code":  "autopilot_update_conflict",

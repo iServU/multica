@@ -1657,7 +1657,7 @@ func (h *Handler) CreateAgent(w http.ResponseWriter, r *http.Request) {
 }
 
 type UpdateAgentRequest struct {
-	ExpectedRevision      *int64                      `json:"expected_revision,omitempty"`
+	ExpectedRevision     *int64                      `json:"expected_revision,omitempty"`
 	Name                 *string                     `json:"name"`
 	Description          *string                     `json:"description"`
 	Instructions         *string                     `json:"instructions"`

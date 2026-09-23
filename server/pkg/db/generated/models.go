@@ -24,7 +24,6 @@ type ActivityLog struct {
 type Agent struct {
 	ID                 pgtype.UUID        `json:"id"`
 	WorkspaceID        pgtype.UUID        `json:"workspace_id"`
-	Revision           int64              `json:"revision"`
 	Name               string             `json:"name"`
 	AvatarUrl          pgtype.Text        `json:"avatar_url"`
 	RuntimeMode        string             `json:"runtime_mode"`
@@ -54,6 +53,7 @@ type Agent struct {
 	DisabledRuntimeSkills []byte      `json:"disabled_runtime_skills"`
 	ServiceTier           pgtype.Text `json:"service_tier"`
 	ConversationStarters  []byte      `json:"conversation_starters"`
+	Revision              int64       `json:"revision"`
 }
 
 type AgentBuilderDraft struct {
@@ -207,7 +207,6 @@ type Attachment struct {
 type Autopilot struct {
 	ID                 pgtype.UUID        `json:"id"`
 	WorkspaceID        pgtype.UUID        `json:"workspace_id"`
-	Revision           int64              `json:"revision"`
 	Title              string             `json:"title"`
 	Description        pgtype.Text        `json:"description"`
 	AssigneeID         pgtype.UUID        `json:"assignee_id"`
@@ -222,6 +221,7 @@ type Autopilot struct {
 	AssigneeType       string             `json:"assignee_type"`
 	ProjectID          pgtype.UUID        `json:"project_id"`
 	PauseReason        pgtype.Text        `json:"pause_reason"`
+	Revision           int64              `json:"revision"`
 }
 
 type AutopilotCollaborator struct {
