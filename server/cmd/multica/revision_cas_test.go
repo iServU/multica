@@ -20,7 +20,9 @@ func TestAgentUpdatePromptUsesProvidedSnapshotRevision(t *testing.T) {
 	defer srv.Close()
 	t.Setenv("MULTICA_SERVER_URL", srv.URL)
 	t.Setenv("MULTICA_WORKSPACE_ID", "ws-1")
-	t.Setenv("MULTICA_TOKEN", "test-token")
+	// A task-scoped mat_ token so the test also passes inside an agent workdir,
+	// where a daemon task marker makes newAPIClient reject a plain token.
+	t.Setenv("MULTICA_TOKEN", "mat_test-token")
 
 	cmd := &cobra.Command{Use: "update"}
 	cmd.Flags().String("instructions", "", "")
@@ -39,24 +41,27 @@ func TestAgentUpdatePromptUsesProvidedSnapshotRevision(t *testing.T) {
 }
 
 func TestAutopilotUpdatePromptUsesProvidedSnapshotRevision(t *testing.T) {
+	const autopilotID = "11111111-1111-1111-1111-111111111111"
 	var body map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Errorf("decode request body: %v", err)
 		}
-		json.NewEncoder(w).Encode(map[string]any{"id": "autopilot-1", "revision": 8})
+		json.NewEncoder(w).Encode(map[string]any{"id": autopilotID, "revision": 8})
 	}))
 	defer srv.Close()
 	t.Setenv("MULTICA_SERVER_URL", srv.URL)
 	t.Setenv("MULTICA_WORKSPACE_ID", "ws-1")
-	t.Setenv("MULTICA_TOKEN", "test-token")
+	// A task-scoped mat_ token so the test also passes inside an agent workdir,
+	// where a daemon task marker makes newAPIClient reject a plain token.
+	t.Setenv("MULTICA_TOKEN", "mat_test-token")
 
 	cmd := newAutopilotUpdateTestCmd()
 	cmd.Flags().Int64("expected-revision", 0, "")
 	_ = cmd.Flags().Set("description", "edit from snapshot 7")
 	_ = cmd.Flags().Set("expected-revision", "7")
 
-	if err := runAutopilotUpdate(cmd, []string{"autopilot-1"}); err != nil {
+	if err := runAutopilotUpdate(cmd, []string{autopilotID}); err != nil {
 		t.Fatalf("runAutopilotUpdate: %v", err)
 	}
 	if body["description"] != "edit from snapshot 7" || body["expected_revision"] != float64(7) {
