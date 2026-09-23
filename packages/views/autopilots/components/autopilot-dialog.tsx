@@ -80,6 +80,7 @@ import type { WebhookEventFilter } from "@multica/core/types";
 export interface AutopilotInitial {
   title: string;
   description: string;
+  revision?: number;
   project_id: string | null;
   assignee_type: AutopilotAssigneeType;
   assignee_id: string;
@@ -376,6 +377,9 @@ export function AutopilotDialog(props: AutopilotDialogProps) {
           id: props.autopilotId,
           title: title.trim(),
           description: description.trim() || null,
+          ...(props.mode === "edit" && props.initial.revision !== undefined
+            ? { expected_revision: props.initial.revision }
+            : {}),
           project_id: projectId,
           assignee_type: assigneeType,
           assignee_id: assigneeId,

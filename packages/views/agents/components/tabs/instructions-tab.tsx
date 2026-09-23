@@ -24,6 +24,7 @@ export function InstructionsTab({
   agent: Agent;
   onSave: (updates: {
     instructions: string;
+    expected_revision?: number;
     conversation_starters?: AgentConversationStarter[];
   }) => Promise<void>;
   onDirtyChange?: (dirty: boolean) => void;
@@ -176,6 +177,9 @@ export function InstructionsTab({
     try {
       await onSave({
         instructions: value,
+        ...(agent.revision !== undefined
+          ? { expected_revision: agent.revision }
+          : {}),
         ...(conversationStartersSupported
           ? { conversation_starters: conversationStarters }
           : {}),

@@ -145,10 +145,11 @@ export function AgentDetailPage({ agentId }: AgentDetailPageProps) {
     // would clobber a concurrent successful mutation if the failing call
     // resolves last (e.g. flipping visibility then runtime simultaneously
     // and only the visibility PATCH fails).
+    const { expected_revision: _expectedRevision, ...optimisticFields } = data;
     const optimisticData =
       typeof data.runtime_id === "string"
-        ? { ...data, runtime_bound: data.runtime_id.trim().length > 0 }
-        : data;
+        ? { ...optimisticFields, runtime_bound: data.runtime_id.trim().length > 0 }
+        : optimisticFields;
     const queryKey = workspaceKeys.agents(wsId);
     const detailQueryKey = workspaceKeys.agent(wsId, id);
     const prevAgents = qc.getQueryData<Agent[]>(queryKey);

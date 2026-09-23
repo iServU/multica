@@ -175,6 +175,23 @@ describe("InstructionsTab persisted-state synchronization", () => {
       instructions: "Updated instructions.",
     });
   });
+
+  it("sends the loaded prompt revision with instruction saves", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    render(tab({ ...baseAgent, revision: 7 }, onSave));
+
+    const instructions = screen.getByLabelText("System prompt");
+    await user.clear(instructions);
+    await user.type(instructions, "Updated instructions.");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(onSave).toHaveBeenCalledWith({
+      instructions: "Updated instructions.",
+      expected_revision: 7,
+      conversation_starters: [persistedPrompt],
+    });
+  });
 });
 
 // The "customize" link in a chat's empty state lands here with ?focus=. The
