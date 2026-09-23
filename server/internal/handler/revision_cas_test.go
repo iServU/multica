@@ -40,8 +40,8 @@ func TestUpdateAgentInstructionsRevisionCAS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reload after stale writer: %v", err)
 	}
-	if afterStale.Revision != baseline.Revision+1 || afterStale.Instructions.String != "writer A" {
-		t.Fatalf("stale writer changed state: revision=%d instructions=%q", afterStale.Revision, afterStale.Instructions.String)
+	if afterStale.Revision != baseline.Revision+1 || afterStale.Instructions != "writer A" {
+		t.Fatalf("stale writer changed state: revision=%d instructions=%q", afterStale.Revision, afterStale.Instructions)
 	}
 
 	fresh := httptest.NewRecorder()
