@@ -22,7 +22,7 @@ func TestPersonalAccessTokenRoutesUseHumanActorGuard(t *testing.T) {
 	guarded := false
 	ast.Inspect(file, func(node ast.Node) bool {
 		call, ok := node.(*ast.CallExpr)
-		if !ok || len(call.Args) < 2 || selectorMethod(call.Fun) != "Route" || stringLit(call.Args[0]) != "/api/tokens" {
+		if !ok || len(call.Args) < 2 || selectorMethod(call.Fun) != "Route" || tokenString(call.Args[0]) != "/api/tokens" {
 			return true
 		}
 		routeBody, ok := call.Args[1].(*ast.FuncLit)
@@ -51,6 +51,14 @@ func selectorMethod(expr ast.Expr) string {
 		return ""
 	}
 	return sel.Sel.Name
+}
+
+func tokenString(expr ast.Expr) string {
+	lit, ok := expr.(*ast.BasicLit)
+	if !ok || lit.Kind != token.STRING || len(lit.Value) < 2 {
+		return ""
+	}
+	return lit.Value[1 : len(lit.Value)-1]
 }
 
 func selectorName(expr ast.Expr) string {
