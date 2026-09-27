@@ -1919,15 +1919,11 @@ func (h *Handler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if _, promptIncluded := rawFields["instructions"]; promptIncluded {
-		if req.ExpectedRevision == nil {
-			writeError(w, http.StatusBadRequest, "expected_revision is required when updating instructions")
-			return
-		}
-		if *req.ExpectedRevision < 1 {
+		if req.ExpectedRevision != nil && *req.ExpectedRevision < 1 {
 			writeError(w, http.StatusBadRequest, "expected_revision must be a positive integer")
 			return
 		}
-		if existing.Revision != *req.ExpectedRevision {
+		if req.ExpectedRevision != nil && existing.Revision != *req.ExpectedRevision {
 			writeRevisionConflict(w, "agent", existing.ID, *req.ExpectedRevision, existing.Revision)
 			return
 		}

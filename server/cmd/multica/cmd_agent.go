@@ -184,7 +184,8 @@ func init() {
 	agentUpdateCmd.Flags().String("name", "", "New name")
 	agentUpdateCmd.Flags().String("description", "", "New description")
 	agentUpdateCmd.Flags().String("instructions", "", "New instructions")
-	agentUpdateCmd.Flags().Int64("expected-revision", 0, "Revision from the agent edit snapshot; required with --instructions")
+	agentUpdateCmd.Flags().Int64("expected-revision", 0, "Revision from the agent edit snapshot; overrides the default current revision lookup")
+	agentUpdateCmd.Flags().Bool("force", false, "Skip the prompt revision precondition")
 	agentUpdateCmd.Flags().String("conversation-starters", "", "New conversation starters as a JSON array of {\"label\",\"prompt\"} objects (at most 3; label ≤80, prompt ≤4000). Pass '[]' to clear. Omit to leave the stored value unchanged.")
 	agentUpdateCmd.Flags().String("runtime-id", "", "New runtime ID")
 	agentUpdateCmd.Flags().String("runtime-config", "", "New runtime config as JSON string")
@@ -749,13 +750,14 @@ func runAgentUpdate(cmd *cobra.Command, args []string) error {
 	if cmd.Flags().Changed("instructions") {
 		v, _ := cmd.Flags().GetString("instructions")
 		body["instructions"] = v
-		if !cmd.Flags().Changed("expected-revision") {
-			return fmt.Errorf("--expected-revision is required with --instructions")
-		}
 	}
+	force, _ := cmd.Flags().GetBool("force")
 	if cmd.Flags().Changed("expected-revision") {
 		if !cmd.Flags().Changed("instructions") {
 			return fmt.Errorf("--expected-revision is only valid with --instructions")
+		}
+		if force {
+			return fmt.Errorf("--force cannot be combined with --expected-revision")
 		}
 		v, _ := cmd.Flags().GetInt64("expected-revision")
 		if v < 1 {
@@ -829,6 +831,17 @@ func runAgentUpdate(cmd *cobra.Command, args []string) error {
 
 	ctx, cancel := cli.APIContext(context.Background())
 	defer cancel()
+	if cmd.Flags().Changed("instructions") && !force && !cmd.Flags().Changed("expected-revision") {
+		var current map[string]any
+		if err := client.GetJSON(ctx, "/api/agents/"+args[0], &current); err != nil {
+			return fmt.Errorf("read agent revision: %w", err)
+		}
+		revision, err := payloadRevision(current)
+		if err != nil {
+			return fmt.Errorf("read agent revision: %w", err)
+		}
+		body["expected_revision"] = revision
+	}
 
 	var result map[string]any
 	if err := client.PutJSON(ctx, "/api/agents/"+args[0], body, &result); err != nil {
@@ -842,6 +855,27 @@ func runAgentUpdate(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Agent updated: %s (%s)\n", strVal(result, "name"), strVal(result, "id"))
 	return nil
+}
+
+func payloadRevision(payload map[string]any) (int64, error) {
+	value, ok := payload["revision"]
+	if !ok {
+		return 0, fmt.Errorf("response did not include revision")
+	}
+	switch revision := value.(type) {
+	case float64:
+		if revision < 1 || revision != float64(int64(revision)) {
+			return 0, fmt.Errorf("response contained invalid revision")
+		}
+		return int64(revision), nil
+	case int64:
+		if revision < 1 {
+			return 0, fmt.Errorf("response contained invalid revision")
+		}
+		return revision, nil
+	default:
+		return 0, fmt.Errorf("response contained invalid revision")
+	}
 }
 
 func runAgentArchive(cmd *cobra.Command, args []string) error {

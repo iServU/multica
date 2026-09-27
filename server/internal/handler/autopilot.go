@@ -1074,15 +1074,11 @@ func (h *Handler) UpdateAutopilot(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if _, descriptionIncluded := rawFields["description"]; descriptionIncluded {
-		if req.ExpectedRevision == nil {
-			writeError(w, http.StatusBadRequest, "expected_revision is required when updating description")
-			return
-		}
-		if *req.ExpectedRevision < 1 {
+		if req.ExpectedRevision != nil && *req.ExpectedRevision < 1 {
 			writeError(w, http.StatusBadRequest, "expected_revision must be a positive integer")
 			return
 		}
-		if prev.Revision != *req.ExpectedRevision {
+		if req.ExpectedRevision != nil && prev.Revision != *req.ExpectedRevision {
 			writeRevisionConflict(w, "autopilot", prev.ID, *req.ExpectedRevision, prev.Revision)
 			return
 		}

@@ -139,7 +139,8 @@ func init() {
 	// update
 	autopilotUpdateCmd.Flags().String("title", "", "New title")
 	autopilotUpdateCmd.Flags().String("description", "", "New description")
-	autopilotUpdateCmd.Flags().Int64("expected-revision", 0, "Revision from the autopilot edit snapshot; required with --description")
+	autopilotUpdateCmd.Flags().Int64("expected-revision", 0, "Revision from the autopilot edit snapshot; overrides the default current revision lookup")
+	autopilotUpdateCmd.Flags().Bool("force", false, "Skip the prompt revision precondition")
 	autopilotUpdateCmd.Flags().String("agent", "", "New assignee agent (name or ID)")
 	autopilotUpdateCmd.Flags().String("project", "", "New project ID (use empty string to clear)")
 	autopilotUpdateCmd.Flags().String("status", "", "New status (active, paused)")
@@ -480,13 +481,14 @@ func runAutopilotUpdate(cmd *cobra.Command, args []string) error {
 	if cmd.Flags().Changed("description") {
 		v, _ := cmd.Flags().GetString("description")
 		body["description"] = v
-		if !cmd.Flags().Changed("expected-revision") {
-			return fmt.Errorf("--expected-revision is required with --description")
-		}
 	}
+	force, _ := cmd.Flags().GetBool("force")
 	if cmd.Flags().Changed("expected-revision") {
 		if !cmd.Flags().Changed("description") {
 			return fmt.Errorf("--expected-revision is only valid with --description")
+		}
+		if force {
+			return fmt.Errorf("--force cannot be combined with --expected-revision")
 		}
 		v, _ := cmd.Flags().GetInt64("expected-revision")
 		if v < 1 {
@@ -547,6 +549,19 @@ func runAutopilotUpdate(cmd *cobra.Command, args []string) error {
 
 	if len(body) == 0 {
 		return fmt.Errorf("no fields to update; use flags like --title, --description, --agent, --status, --mode, etc.")
+	}
+	if cmd.Flags().Changed("description") && !force && !cmd.Flags().Changed("expected-revision") {
+		var current struct {
+			Autopilot map[string]any `json:"autopilot"`
+		}
+		if err := client.GetJSON(ctx, "/api/autopilots/"+autopilotRef.ID, &current); err != nil {
+			return fmt.Errorf("read autopilot revision: %w", err)
+		}
+		revision, err := payloadRevision(current.Autopilot)
+		if err != nil {
+			return fmt.Errorf("read autopilot revision: %w", err)
+		}
+		body["expected_revision"] = revision
 	}
 
 	var result map[string]any

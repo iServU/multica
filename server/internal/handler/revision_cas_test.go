@@ -131,3 +131,28 @@ func TestUpdateAutopilotRejectsMixedCaseDescriptionKey(t *testing.T) {
 		t.Fatalf("mixed-case description: expected 400, got %d: %s", w.Code, w.Body.String())
 	}
 }
+
+func TestPromptUpdatesWithoutRevisionRemainBackwardCompatible(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+
+	agentID := createHandlerTestAgent(t, "revision-compat-agent", nil)
+	agentW := httptest.NewRecorder()
+	testHandler.UpdateAgent(agentW, withURLParam(newRequest(http.MethodPut, "/api/agents/"+agentID, map[string]any{
+		"instructions": "legacy agent writer",
+	}), "id", agentID))
+	if agentW.Code != http.StatusOK {
+		t.Fatalf("legacy agent prompt update: expected 200, got %d: %s", agentW.Code, agentW.Body.String())
+	}
+
+	webhookAgentID := createWebhookTestAgent(t, "revision-compat-autopilot-agent")
+	autopilotID := createWebhookTestAutopilot(t, webhookAgentID, "active", "run_only")
+	autopilotW := httptest.NewRecorder()
+	testHandler.UpdateAutopilot(autopilotW, withURLParam(newRequest(http.MethodPatch, "/api/autopilots/"+autopilotID, map[string]any{
+		"description": "legacy autopilot writer",
+	}), "id", autopilotID))
+	if autopilotW.Code != http.StatusOK {
+		t.Fatalf("legacy autopilot prompt update: expected 200, got %d: %s", autopilotW.Code, autopilotW.Body.String())
+	}
+}
