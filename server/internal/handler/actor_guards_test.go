@@ -149,7 +149,14 @@ func TestRequireHumanActor_AppliedViaChiRouterUse(t *testing.T) {
 	blocked := func(_ http.ResponseWriter, _ *http.Request) {
 		t.Fatal("inner handler must NOT run when guard rejects")
 	}
+	passed := func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}
+	// Keep both forms here: clients use the slash-less path, while the
+	// production group registers its handlers at the trailing-slash path.
+	r.Get("/api/tokens", blocked)
 	r.Get("/api/tokens/", blocked)
+	r.Post("/api/tokens", blocked)
 	r.Post("/api/tokens/", blocked)
 	r.Post("/api/tokens/current/renew", blocked)
 	r.Delete("/api/tokens/{id}", blocked)
@@ -159,8 +166,10 @@ func TestRequireHumanActor_AppliedViaChiRouterUse(t *testing.T) {
 		method string
 		path   string
 	}{
-		{name: "list", method: http.MethodGet, path: "/api/tokens/"},
-		{name: "create", method: http.MethodPost, path: "/api/tokens/"},
+		{name: "list-slashless", method: http.MethodGet, path: "/api/tokens"},
+		{name: "list-trailing-slash", method: http.MethodGet, path: "/api/tokens/"},
+		{name: "create-slashless", method: http.MethodPost, path: "/api/tokens"},
+		{name: "create-trailing-slash", method: http.MethodPost, path: "/api/tokens/"},
 		{name: "renew", method: http.MethodPost, path: "/api/tokens/current/renew"},
 		{name: "revoke", method: http.MethodDelete, path: "/api/tokens/not-a-uuid"},
 	}
@@ -173,6 +182,34 @@ func TestRequireHumanActor_AppliedViaChiRouterUse(t *testing.T) {
 
 			if w.Code != http.StatusForbidden {
 				t.Errorf("status = %d, want 403", w.Code)
+			}
+		})
+	}
+
+	for _, tc := range cases {
+		t.Run("human-"+tc.name, func(t *testing.T) {
+			var router chi.Router
+			router = chi.NewRouter()
+			router.Use(RequireHumanActor)
+			register := func(method, path string, handler http.HandlerFunc) {
+				switch method {
+				case http.MethodGet:
+					router.Get(path, handler)
+				case http.MethodPost:
+					router.Post(path, handler)
+				case http.MethodDelete:
+					router.Delete(path, handler)
+				default:
+					t.Fatalf("unsupported method %q", method)
+				}
+			}
+			register(tc.method, tc.path, passed)
+
+			req := httptest.NewRequest(tc.method, tc.path, nil)
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+			if w.Code != http.StatusNoContent {
+				t.Fatalf("status = %d, want 204 for human-shaped request", w.Code)
 			}
 		})
 	}
