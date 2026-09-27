@@ -137,25 +137,43 @@ func TestRequireHumanActor_IgnoresUnknownActorSource(t *testing.T) {
 // the contract: when the guard is attached to a chi route group via
 // r.Use, every endpoint in that group is protected, and a task-token
 // request never reaches the handler — even one we add later. This is
-// what router.go's r.Route("/api/cloud-billing", ...) + r.Use(...)
-// guarantees in production; the test is small but a developer adding
-// a new billing endpoint and forgetting to re-attach the middleware
+// what router.go's protected route group + r.Use(...) guarantees in
+// production; the test is small but a developer adding a new endpoint
+// and forgetting to re-attach the middleware
 // would not be caught by the per-handler tests above.
 func TestRequireHumanActor_AppliedViaChiRouterUse(t *testing.T) {
 	// Use a real chi router so we exercise r.Use(), not just the
 	// middleware function in isolation.
 	r := chi.NewRouter()
 	r.Use(RequireHumanActor)
-	r.Get("/billing/probe", func(_ http.ResponseWriter, _ *http.Request) {
+	blocked := func(_ http.ResponseWriter, _ *http.Request) {
 		t.Fatal("inner handler must NOT run when guard rejects")
-	})
+	}
+	r.Get("/api/tokens/", blocked)
+	r.Post("/api/tokens/", blocked)
+	r.Post("/api/tokens/current/renew", blocked)
+	r.Delete("/api/tokens/{id}", blocked)
 
-	req := httptest.NewRequest(http.MethodGet, "/billing/probe", nil)
-	req.Header.Set("X-Actor-Source", "task_token")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
+	cases := []struct {
+		name   string
+		method string
+		path   string
+	}{
+		{name: "list", method: http.MethodGet, path: "/api/tokens/"},
+		{name: "create", method: http.MethodPost, path: "/api/tokens/"},
+		{name: "renew", method: http.MethodPost, path: "/api/tokens/current/renew"},
+		{name: "revoke", method: http.MethodDelete, path: "/api/tokens/not-a-uuid"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, tc.path, nil)
+			req.Header.Set("X-Actor-Source", "task_token")
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want 403", w.Code)
+			if w.Code != http.StatusForbidden {
+				t.Errorf("status = %d, want 403", w.Code)
+			}
+		})
 	}
 }
