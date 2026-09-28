@@ -7,6 +7,7 @@ import { MulticaIcon } from "@multica/ui/components/common/multica-icon";
 import { cn } from "@multica/ui/lib/utils";
 import { useAuthStore } from "@multica/core/auth";
 import { docsHrefForLocale, useLocale } from "../i18n";
+import { useDashboardCtaHref } from "../utils/use-dashboard-cta";
 import { formatStarCount, useGithubStars } from "../utils/use-github-stars";
 import { GitHubMark, githubUrl, headerButtonClassName } from "./shared";
 
@@ -26,7 +27,7 @@ export function LandingHeader({
     { href: docsHref, label: t.header.docs },
     { href: "/changelog", label: t.header.changelog },
   ];
-  const ctaHref = user ? "/" : "/login";
+  const ctaHref = useDashboardCtaHref();
   const ctaLabel = user ? t.header.dashboard : t.header.cta;
 
   return (
@@ -50,7 +51,7 @@ export function LandingHeader({
             />
             <span
               className={cn(
-                "text-[18px] font-semibold tracking-[0.04em] lowercase sm:text-[20px]",
+                "text-title font-semibold tracking-[0.04em] lowercase sm:text-title-lg",
                 variant === "dark" ? "text-white/92" : "text-[#0a0d12]",
               )}
             >
@@ -116,7 +117,7 @@ export function LandingHeader({
       {isMenuOpen ? (
         <div
           className={cn(
-            "absolute left-4 right-4 top-[calc(100%+8px)] z-50 rounded-[14px] border p-2 shadow-[0_18px_60px_rgba(0,0,0,0.18)] backdrop-blur-xl md:hidden",
+            "absolute left-4 right-4 top-[calc(100%+8px)] z-50 rounded-(--landing-radius-menu) border p-2 shadow-[0_18px_60px_rgba(0,0,0,0.18)] backdrop-blur-xl md:hidden",
             variant === "dark"
               ? "border-white/14 bg-[#070a10]/95 text-white"
               : "border-[#0a0d12]/10 bg-white text-[#0a0d12]",
@@ -174,7 +175,7 @@ function GitHubStarsBadge({ label }: { label: string }) {
 
 function navLinkClassName(variant: "dark" | "light") {
   return cn(
-    "inline-flex h-9 items-center rounded-[9px] px-3 text-[13px] font-medium transition-colors",
+    "inline-flex h-9 items-center rounded-(--landing-radius-nav-item) px-3 text-label font-medium transition-colors",
     variant === "dark"
       ? "text-white/72 hover:bg-white/8 hover:text-white"
       : "text-[#0a0d12]/62 hover:bg-[#0a0d12]/5 hover:text-[#0a0d12]",
@@ -183,7 +184,7 @@ function navLinkClassName(variant: "dark" | "light") {
 
 function mobileNavLinkClassName(variant: "dark" | "light") {
   return cn(
-    "flex min-h-11 items-center gap-2 rounded-[10px] px-3 text-[14px] font-medium transition-colors",
+    "flex min-h-11 items-center gap-2 rounded-(--landing-radius-menu-item) px-3 text-body font-medium transition-colors",
     variant === "dark"
       ? "text-white/76 hover:bg-white/8 hover:text-white"
       : "text-[#0a0d12]/68 hover:bg-[#0a0d12]/5 hover:text-[#0a0d12]",

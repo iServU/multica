@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { InboxItem, InboxWorkspaceUnread } from "../types";
-import { deduplicateInboxItems, hasOtherWorkspaceUnread, inboxKeys, unreadWorkspaceIds } from "./queries";
+import {
+  deduplicateArchivedInboxItems,
+  deduplicateInboxItems,
+  hasOtherWorkspaceUnread,
+  inboxKeys,
+  unreadCountForWorkspace,
+  unreadWorkspaceIds,
+} from "./queries";
 
 function item(overrides: Partial<InboxItem>): InboxItem {
   return {
@@ -70,6 +77,63 @@ describe("deduplicateInboxItems", () => {
     expect(merged).toHaveLength(1);
     expect(merged[0]?.id).toBe("newer-comment");
     expect(merged[0]?.details?.comment_id).toBe("comment-2");
+  });
+
+  it("drops archived rows so an optimistic archive leaves the list at once", () => {
+    const merged = deduplicateInboxItems([
+      item({ id: "active", issue_id: "issue-1" }),
+      item({ id: "filed-away", issue_id: "issue-2", archived: true }),
+    ]);
+
+    expect(merged.map((i) => i.id)).toEqual(["active"]);
+  });
+});
+
+describe("deduplicateArchivedInboxItems", () => {
+  it("keeps only archived rows, one per issue, newest first", () => {
+    const merged = deduplicateArchivedInboxItems([
+      item({
+        id: "archived-older",
+        issue_id: "issue-1",
+        archived: true,
+        created_at: "2026-06-15T08:00:00Z",
+      }),
+      item({
+        id: "archived-newer",
+        issue_id: "issue-1",
+        archived: true,
+        created_at: "2026-06-15T09:00:00Z",
+      }),
+      item({
+        id: "archived-other-issue",
+        issue_id: "issue-2",
+        archived: true,
+        created_at: "2026-06-15T07:00:00Z",
+      }),
+      item({ id: "still-active", issue_id: "issue-3" }),
+    ]);
+
+    expect(merged.map((i) => i.id)).toEqual([
+      "archived-newer",
+      "archived-other-issue",
+    ]);
+  });
+
+  it("drops a row the moment an optimistic unarchive flips it back", () => {
+    // What useUnarchiveInbox's onMutate does: flip `archived` on the archived
+    // cache. The row must leave this list without waiting for the refetch.
+    const restored = item({ id: "restored", archived: false });
+
+    expect(deduplicateArchivedInboxItems([restored])).toEqual([]);
+  });
+
+  it("groups issue-less notifications on their own id rather than merging them", () => {
+    const merged = deduplicateArchivedInboxItems([
+      item({ id: "standalone-1", issue_id: null, archived: true }),
+      item({ id: "standalone-2", issue_id: null, archived: true }),
+    ]);
+
+    expect(merged).toHaveLength(2);
   });
 });
 
@@ -150,5 +214,33 @@ describe("unreadWorkspaceIds", () => {
 describe("inboxKeys.unreadSummary", () => {
   it("is a stable account-level key independent of any workspace", () => {
     expect(inboxKeys.unreadSummary()).toEqual(["inbox", "unread-summary"]);
+  });
+});
+
+// The inbox nav / tab / dock badges all read this instead of counting the
+// inbox list, so that the count costs no list fetch (MUL-6967).
+describe("unreadCountForWorkspace", () => {
+  const summary: InboxWorkspaceUnread[] = [
+    { workspace_id: "ws-1", count: 3 },
+    { workspace_id: "ws-2", count: 7 },
+  ];
+
+  it("returns the requested workspace's count", () => {
+    expect(unreadCountForWorkspace(summary, "ws-2")).toBe(7);
+  });
+
+  it("reads an absent workspace as zero", () => {
+    // The endpoint omits workspaces with nothing unread rather than sending a
+    // zero row, so "missing" must mean 0 and not "unknown".
+    expect(unreadCountForWorkspace(summary, "ws-3")).toBe(0);
+  });
+
+  it("returns zero without a workspace", () => {
+    expect(unreadCountForWorkspace(summary, null)).toBe(0);
+    expect(unreadCountForWorkspace(summary, undefined)).toBe(0);
+  });
+
+  it("returns zero for an empty summary", () => {
+    expect(unreadCountForWorkspace([], "ws-1")).toBe(0);
   });
 });

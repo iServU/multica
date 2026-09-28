@@ -18,12 +18,40 @@ export interface IssueSurfaceActivity {
   runningIssueIds: Set<string>;
 }
 
-function isQueuedTaskStatus(status: AgentTask["status"]) {
+function isQueuedTaskStatus(status: AgentTask["status"], wakeupId?: string) {
   return (
     status === "queued" ||
     status === "dispatched" ||
-    status === "waiting_local_directory"
+    status === "waiting_local_directory" || (status === "deferred" && !!wakeupId)
   );
+}
+
+export interface IssueTaskGroups {
+  running: AgentTask[];
+  queued: AgentTask[];
+}
+
+/**
+ * Per-issue slice of the workspace-wide agent task snapshot. Used as the
+ * `select` for a row-level `useQuery(agentTaskSnapshotOptions)`: every row
+ * still observes the one shared snapshot query, but React Query's structural
+ * sharing keeps this returned object referentially stable when *this* issue's
+ * tasks are unchanged, so a snapshot invalidation only re-renders the rows
+ * whose own tasks actually moved — not the whole list. Terminal statuses are
+ * dropped (they belong on issue history, not the live indicator).
+ */
+export function selectIssueTasks(
+  snapshot: readonly AgentTask[],
+  issueId: string,
+): IssueTaskGroups {
+  const running: AgentTask[] = [];
+  const queued: AgentTask[] = [];
+  for (const task of snapshot) {
+    if (task.issue_id !== issueId) continue;
+    if (task.status === "running") running.push(task);
+    else if (isQueuedTaskStatus(task.status, task.wakeup_id)) queued.push(task);
+  }
+  return { running, queued };
 }
 
 export function deriveIssueSurfaceActivity(
@@ -33,7 +61,7 @@ export function deriveIssueSurfaceActivity(
 
   for (const task of tasks) {
     if (!task.issue_id) continue;
-    if (task.status !== "running" && !isQueuedTaskStatus(task.status)) {
+    if (task.status !== "running" && !isQueuedTaskStatus(task.status, task.wakeup_id)) {
       continue;
     }
 
