@@ -13,14 +13,14 @@ permissions:
 
 jobs:
   build-candidate:
-    if: github.repository == 'multica-ai/multica' && github.ref == 'refs/heads/main'
+    if: github.repository == 'iServU/multica' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
     env:
       SOURCE_SHA: ${{ inputs.source_sha }}
-      IMAGE_NAME: ghcr.io/multica-ai/multica-backend
+      IMAGE_NAME: ghcr.io/iservu/multica-backend
       DOCKERFILE_REVISION: 1a006ed3acd259124b97165377ae32477155eb03
     steps:
       - name: Validate reviewed source SHA
