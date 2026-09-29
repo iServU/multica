@@ -18,39 +18,62 @@ func TestUpdateAgentInstructionsRevisionCAS(t *testing.T) {
 		t.Fatalf("load baseline agent: %v", err)
 	}
 
-	first := httptest.NewRecorder()
-	testHandler.UpdateAgent(first, withURLParam(newRequest(http.MethodPut, "/api/agents/"+agentID, map[string]any{
-		"instructions":      "writer A",
-		"expected_revision": baseline.Revision,
-	}), "id", agentID))
-	if first.Code != http.StatusOK {
-		t.Fatalf("writer A: expected 200, got %d: %s", first.Code, first.Body.String())
+	type result struct {
+		code int
+		body string
+	}
+	start := make(chan struct{})
+	results := make(chan result, 2)
+	for _, text := range []string{"writer A", "writer B"} {
+		go func(text string) {
+			<-start
+			w := httptest.NewRecorder()
+			testHandler.UpdateAgent(w, withURLParam(newRequest(http.MethodPut, "/api/agents/"+agentID, map[string]any{
+				"instructions":      text,
+				"expected_revision": baseline.Revision,
+			}), "id", agentID))
+			results <- result{code: w.Code, body: w.Body.String()}
+		}(text)
+	}
+	close(start)
+	var successes, conflicts int
+	for range 2 {
+		got := <-results
+		switch {
+		case got.code == http.StatusOK:
+			successes++
+		case got.code == http.StatusConflict && strings.Contains(got.body, "revision_conflict"):
+			conflicts++
+		default:
+			t.Fatalf("overlapping writer: unexpected response %d: %s", got.code, got.body)
+		}
+	}
+	if successes != 1 || conflicts != 1 {
+		t.Fatalf("overlapping writers: successes=%d conflicts=%d, want one each", successes, conflicts)
 	}
 
-	stale := httptest.NewRecorder()
-	testHandler.UpdateAgent(stale, withURLParam(newRequest(http.MethodPut, "/api/agents/"+agentID, map[string]any{
-		"instructions":      "writer B",
-		"expected_revision": baseline.Revision,
-	}), "id", agentID))
-	if stale.Code != http.StatusConflict || !strings.Contains(stale.Body.String(), "revision_conflict") {
-		t.Fatalf("stale writer: expected revision_conflict 409, got %d: %s", stale.Code, stale.Body.String())
-	}
-
-	afterStale, err := testHandler.Queries.GetAgent(context.Background(), parseUUID(agentID))
+	afterOverlap, err := testHandler.Queries.GetAgent(context.Background(), parseUUID(agentID))
 	if err != nil {
-		t.Fatalf("reload after stale writer: %v", err)
+		t.Fatalf("reload after overlapping writers: %v", err)
 	}
-	if afterStale.Revision != baseline.Revision+1 || afterStale.Instructions != "writer A" {
-		t.Fatalf("stale writer changed state: revision=%d instructions=%q", afterStale.Revision, afterStale.Instructions)
+	if afterOverlap.Revision != baseline.Revision+1 || (afterOverlap.Instructions != "writer A" && afterOverlap.Instructions != "writer B") {
+		t.Fatalf("overlapping writer state: revision=%d instructions=%q", afterOverlap.Revision, afterOverlap.Instructions)
 	}
 
 	fresh := httptest.NewRecorder()
 	testHandler.UpdateAgent(fresh, withURLParam(newRequest(http.MethodPut, "/api/agents/"+agentID, map[string]any{
-		"instructions":      "rebuilt from writer A",
-		"expected_revision": afterStale.Revision,
+		"instructions":      "rebuilt from winning writer",
+		"expected_revision": afterOverlap.Revision,
 	}), "id", agentID))
 	if fresh.Code != http.StatusOK {
 		t.Fatalf("rebuilt writer: expected 200, got %d: %s", fresh.Code, fresh.Body.String())
+	}
+	afterFresh, err := testHandler.Queries.GetAgent(context.Background(), parseUUID(agentID))
+	if err != nil {
+		t.Fatalf("reload after fresh writer: %v", err)
+	}
+	if afterFresh.Revision != afterOverlap.Revision+1 || afterFresh.Instructions != "rebuilt from winning writer" {
+		t.Fatalf("fresh writer state: revision=%d instructions=%q", afterFresh.Revision, afterFresh.Instructions)
 	}
 }
 
@@ -80,39 +103,62 @@ func TestUpdateAutopilotDescriptionRevisionCAS(t *testing.T) {
 		t.Fatalf("load baseline autopilot: %v", err)
 	}
 
-	first := httptest.NewRecorder()
-	testHandler.UpdateAutopilot(first, withURLParam(newRequest(http.MethodPatch, "/api/autopilots/"+autopilotID, map[string]any{
-		"description":       "writer A",
-		"expected_revision": baseline.Revision,
-	}), "id", autopilotID))
-	if first.Code != http.StatusOK {
-		t.Fatalf("writer A: expected 200, got %d: %s", first.Code, first.Body.String())
+	type result struct {
+		code int
+		body string
+	}
+	start := make(chan struct{})
+	results := make(chan result, 2)
+	for _, text := range []string{"writer A", "writer B"} {
+		go func(text string) {
+			<-start
+			w := httptest.NewRecorder()
+			testHandler.UpdateAutopilot(w, withURLParam(newRequest(http.MethodPatch, "/api/autopilots/"+autopilotID, map[string]any{
+				"description":       text,
+				"expected_revision": baseline.Revision,
+			}), "id", autopilotID))
+			results <- result{code: w.Code, body: w.Body.String()}
+		}(text)
+	}
+	close(start)
+	var successes, conflicts int
+	for range 2 {
+		got := <-results
+		switch {
+		case got.code == http.StatusOK:
+			successes++
+		case got.code == http.StatusConflict && strings.Contains(got.body, "revision_conflict"):
+			conflicts++
+		default:
+			t.Fatalf("overlapping writer: unexpected response %d: %s", got.code, got.body)
+		}
+	}
+	if successes != 1 || conflicts != 1 {
+		t.Fatalf("overlapping writers: successes=%d conflicts=%d, want one each", successes, conflicts)
 	}
 
-	stale := httptest.NewRecorder()
-	testHandler.UpdateAutopilot(stale, withURLParam(newRequest(http.MethodPatch, "/api/autopilots/"+autopilotID, map[string]any{
-		"description":       "writer B",
-		"expected_revision": baseline.Revision,
-	}), "id", autopilotID))
-	if stale.Code != http.StatusConflict || !strings.Contains(stale.Body.String(), "revision_conflict") {
-		t.Fatalf("stale writer: expected revision_conflict 409, got %d: %s", stale.Code, stale.Body.String())
-	}
-
-	afterStale, err := testHandler.Queries.GetAutopilot(context.Background(), parseUUID(autopilotID))
+	afterOverlap, err := testHandler.Queries.GetAutopilot(context.Background(), parseUUID(autopilotID))
 	if err != nil {
-		t.Fatalf("reload after stale writer: %v", err)
+		t.Fatalf("reload after overlapping writers: %v", err)
 	}
-	if afterStale.Revision != baseline.Revision+1 || afterStale.Description.String != "writer A" {
-		t.Fatalf("stale writer changed state: revision=%d description=%q", afterStale.Revision, afterStale.Description.String)
+	if afterOverlap.Revision != baseline.Revision+1 || (afterOverlap.Description.String != "writer A" && afterOverlap.Description.String != "writer B") {
+		t.Fatalf("overlapping writer state: revision=%d description=%q", afterOverlap.Revision, afterOverlap.Description.String)
 	}
 
 	fresh := httptest.NewRecorder()
 	testHandler.UpdateAutopilot(fresh, withURLParam(newRequest(http.MethodPatch, "/api/autopilots/"+autopilotID, map[string]any{
-		"description":       "rebuilt from writer A",
-		"expected_revision": afterStale.Revision,
+		"description":       "rebuilt from winning writer",
+		"expected_revision": afterOverlap.Revision,
 	}), "id", autopilotID))
 	if fresh.Code != http.StatusOK {
 		t.Fatalf("rebuilt writer: expected 200, got %d: %s", fresh.Code, fresh.Body.String())
+	}
+	afterFresh, err := testHandler.Queries.GetAutopilot(context.Background(), parseUUID(autopilotID))
+	if err != nil {
+		t.Fatalf("reload after fresh writer: %v", err)
+	}
+	if afterFresh.Revision != afterOverlap.Revision+1 || afterFresh.Description.String != "rebuilt from winning writer" {
+		t.Fatalf("fresh writer state: revision=%d description=%q", afterFresh.Revision, afterFresh.Description.String)
 	}
 }
 

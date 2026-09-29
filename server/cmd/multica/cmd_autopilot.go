@@ -551,17 +551,7 @@ func runAutopilotUpdate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no fields to update; use flags like --title, --description, --agent, --status, --mode, etc.")
 	}
 	if cmd.Flags().Changed("description") && !force && !cmd.Flags().Changed("expected-revision") {
-		var current struct {
-			Autopilot map[string]any `json:"autopilot"`
-		}
-		if err := client.GetJSON(ctx, "/api/autopilots/"+autopilotRef.ID, &current); err != nil {
-			return fmt.Errorf("read autopilot revision: %w", err)
-		}
-		revision, err := payloadRevision(current.Autopilot)
-		if err != nil {
-			return fmt.Errorf("read autopilot revision: %w", err)
-		}
-		body["expected_revision"] = revision
+		return fmt.Errorf("--description requires --expected-revision from the edit snapshot or --force")
 	}
 
 	var result map[string]any

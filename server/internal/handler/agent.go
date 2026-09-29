@@ -1923,10 +1923,6 @@ func (h *Handler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "expected_revision must be a positive integer")
 			return
 		}
-		if req.ExpectedRevision != nil && existing.Revision != *req.ExpectedRevision {
-			writeRevisionConflict(w, "agent", existing.ID, *req.ExpectedRevision, existing.Revision)
-			return
-		}
 	}
 
 	params := db.UpdateAgentParams{

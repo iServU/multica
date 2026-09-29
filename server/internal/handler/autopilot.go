@@ -1078,10 +1078,6 @@ func (h *Handler) UpdateAutopilot(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "expected_revision must be a positive integer")
 			return
 		}
-		if req.ExpectedRevision != nil && prev.Revision != *req.ExpectedRevision {
-			writeRevisionConflict(w, "autopilot", prev.ID, *req.ExpectedRevision, prev.Revision)
-			return
-		}
 	}
 
 	params := db.UpdateAutopilotParams{

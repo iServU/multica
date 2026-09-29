@@ -832,15 +832,7 @@ func runAgentUpdate(cmd *cobra.Command, args []string) error {
 	ctx, cancel := cli.APIContext(context.Background())
 	defer cancel()
 	if cmd.Flags().Changed("instructions") && !force && !cmd.Flags().Changed("expected-revision") {
-		var current map[string]any
-		if err := client.GetJSON(ctx, "/api/agents/"+args[0], &current); err != nil {
-			return fmt.Errorf("read agent revision: %w", err)
-		}
-		revision, err := payloadRevision(current)
-		if err != nil {
-			return fmt.Errorf("read agent revision: %w", err)
-		}
-		body["expected_revision"] = revision
+		return fmt.Errorf("--instructions requires --expected-revision from the edit snapshot or --force")
 	}
 
 	var result map[string]any
